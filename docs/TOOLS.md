@@ -55,6 +55,9 @@ Question catalogue (extend as needed):
 | `Q_GOVT` | is_govt_employee | Do you or did you work for the government? |
 | `Q_PROF` | is_registered_professional | Are you a registered doctor, engineer, lawyer, CA or architect? |
 | `Q_SEEDED` | aadhaar_seeded | Is your Aadhaar linked to this bank account? *(officer can check the system)* |
+| `Q_EKYC`, `Q_HAS_ACCOUNT`, `Q_AGE`, `Q_OCCUPATION` | one field each | fallbacks for gaps in the bank record (see `app/planner/questions.py`) |
+
+If no single question fully resolves a product, the ranker falls back to the question covering the most missing fields.
 
 ### `plan_actions`
 ```
@@ -83,7 +86,9 @@ in:  { "product_id": "PMJJBY", "extra_fields": { "nominee_name": "...", "nominee
 out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "pdf_path": "...", "missing_mandatory": [] }
 ```
 - **Refuses** (error) unless the product's current status is `ELIGIBLE`. The rules engine is re-run inside the tool; the LLM's claim isn't trusted.
-- Fills fields from the profile; `missing_mandatory` lists empty mandatory fields (the agent should ask for them, then call `fill_form` again; the previous draft is replaced).
+- Fills fields from the profile. If mandatory extra fields are missing (nominee, girl child's name, crop…; see `MANDATORY_EXTRA` in `app/forms/fill.py`), **no item is created**: it returns `{"item_id": null, "status": "NEEDS_INFO", "missing_mandatory": [...]}`. The agent asks, then calls `fill_form` again.
+- Calling `fill_form` again while the item is still `PENDING_APPROVAL` replaces that draft.
+- Refuses extra fields that look like a full 12-digit Aadhaar number.
 - Creates a `queue_items` row (`kind=ENROLLMENT_FORM`) at `PENDING_APPROVAL`.
 
 ### `raise_request`
@@ -92,7 +97,20 @@ in:  { "action_id": "AADHAAR_SEEDING_REQUEST", "note": "..." }
 out: { "item_id": "Q-0005", "status": "PENDING_APPROVAL" }
 ```
 - Refuses unless `action_id` appears in `blocked_by` of at least one product for this customer.
+- `OPEN_SAVINGS_ACCOUNT` is not a service request: opening the account *is* the PMJDY enrollment, so the tool tells the agent to call `fill_form("PMJDY")`. The plan shows it as one `ENROLLMENT` step for PMJDY that carries `action_id` and `unlocks`.
+- Raising the same request twice returns the existing item.
 - Creates a `queue_items` row with `kind=SERVICE_REQUEST`.
+
+### Completion effects (system, not a tool)
+
+When the officer approves an item, `sessions.apply_completion` records what it changes as a system fact (audited as `completion_effect`), so blocked products can unlock:
+
+| Approved item | Fact applied |
+|---|---|
+| `AADHAAR_SEEDING_REQUEST` | `aadhaar_seeded = true` |
+| `EKYC_REQUEST` | `ekyc_done = true` |
+| PMJDY enrollment | `has_savings_account = true` |
+| any enrollment | product added to `enrollments` (→ `ALREADY_ENROLLED`) |
 
 ### `revise_item`
 ```
@@ -110,10 +128,13 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/customers` | | list of `{customer_id, name, age, occupation}` |
+| GET | `/health` | | `{ok, llm_configured, provider}` |
+| GET | `/customers` | | list of `{customer_id, name, age, occupation, district, preferred_language}` |
 | POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation) |
 | POST | `/sessions/{id}/message` | `{text, lang?}` | `{reply: AgentReply, state: SessionState}` |
 | GET | `/sessions/{id}/state` | | `SessionState` |
+| POST | `/sessions/{id}/facts` | `{facts, question_id?}` | `{result, state}`: officer enters facts directly (same validation as `update_profile`; works with no LLM) |
+| POST | `/sessions/{id}/act` | `{extra_fields: {PRODUCT_ID: {...}}}` | `{outcomes, state}`: deterministically queues every actionable plan step (rules-only fallback) |
 | GET | `/queue` | `?status=PENDING_APPROVAL` | list of queue items |
 | POST | `/queue/{item_id}/approve` | `{officer_id}` | item (→ `APPROVED`, then mock `SUBMITTED`) |
 | POST | `/queue/{item_id}/reject` | `{officer_id, reason}` | item (→ `REJECTED`); triggers agent revision turn |
@@ -128,8 +149,10 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
   "profile": { ... },
   "results": [ <ProductResult> ],
   "plan": { "steps": [...], "checklist": [...] },
+  "next_question": { "question": {...} | null, "reason"?: "..." },
   "queue_items": [ ... ],
-  "questions_asked": 1
+  "questions_asked": 1,
+  "messages": [ {"role": "user"|"assistant", "content": "..."} ]
 }
 ```
 

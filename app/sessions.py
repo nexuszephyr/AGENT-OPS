@@ -1,0 +1,179 @@
+"""Session storage and derived SessionState (docs/TOOLS.md §3)."""
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+
+from app import queue
+from app.config import MAX_QUESTIONS
+from app.db import row_to_dict
+from app.planner.documents import plan_actions
+from app.planner.questions import pick_next_question
+from app.rules import engine
+
+INGESTING, EVALUATING, ASKING, PLANNING, ACTING = "INGESTING", "EVALUATING", "ASKING", "PLANNING", "ACTING"
+AWAITING_APPROVAL, REVISING, DONE = "AWAITING_APPROVAL", "REVISING", "DONE"
+
+
+class SessionError(ValueError):
+    pass
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def get_customer(conn: sqlite3.Connection, customer_id: str) -> dict:
+    row = conn.execute("SELECT profile_json FROM customers WHERE customer_id = ?", (customer_id,)).fetchone()
+    if row is None:
+        raise SessionError(f"no customer {customer_id}")
+    return json.loads(row["profile_json"])
+
+
+def list_customers(conn: sqlite3.Connection) -> list[dict]:
+    out = []
+    for r in conn.execute("SELECT profile_json FROM customers ORDER BY customer_id"):
+        p = json.loads(r["profile_json"])
+        out.append({k: p.get(k) for k in ("customer_id", "name", "age", "occupation", "district",
+                                          "preferred_language")})
+    return out
+
+
+def create(conn: sqlite3.Connection, customer_id: str, officer_id: str) -> dict:
+    get_customer(conn, customer_id)  # raises if missing
+    sid = "S-" + uuid.uuid4().hex[:6].upper()
+    conn.execute(
+        "INSERT INTO sessions (session_id, customer_id, officer_id, state, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (sid, customer_id, officer_id, INGESTING, _now()),
+    )
+    conn.commit()
+    return get(conn, sid)
+
+
+def get(conn: sqlite3.Connection, session_id: str) -> dict:
+    s = row_to_dict(conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone())
+    if s is None:
+        raise SessionError(f"no session {session_id}")
+    return s
+
+
+def update(conn: sqlite3.Connection, session_id: str, **cols) -> None:
+    sets, vals = [], []
+    for k, v in cols.items():
+        if k in ("profile_overrides", "asked_questions", "messages"):
+            k, v = k + "_json", json.dumps(v, ensure_ascii=False)
+        sets.append(f"{k} = ?")
+        vals.append(v)
+    sets.append("updated_at = ?")
+    vals.append(_now())
+    conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?", (*vals, session_id))
+    conn.commit()
+
+
+def profile(conn: sqlite3.Connection, session: dict) -> dict:
+    """Bank record with interview facts layered on top."""
+    return {**get_customer(conn, session["customer_id"]), **(session.get("profile_overrides") or {})}
+
+
+def results(conn: sqlite3.Connection, session: dict) -> list[dict]:
+    res = engine.evaluate_all(profile(conn, session))
+    if session["questions_asked"] >= MAX_QUESTIONS:
+        res = engine.finalize_unknowns(res)
+    return res
+
+
+def next_question(conn: sqlite3.Connection, session: dict, res: list[dict] | None = None) -> dict:
+    return pick_next_question(res if res is not None else results(conn, session),
+                              asked=session.get("asked_questions") or [],
+                              questions_asked=session["questions_asked"], limit=MAX_QUESTIONS)
+
+
+def mark_asked(conn: sqlite3.Connection, session_id: str, question_id: str) -> None:
+    s = get(conn, session_id)
+    asked = s.get("asked_questions") or []
+    if question_id and question_id not in asked:
+        update(conn, session_id, asked_questions=asked + [question_id],
+               questions_asked=s["questions_asked"] + 1)
+
+
+def _queued_item(items: list[dict], step: dict) -> dict | None:
+    """The queue item that covers a plan step, if any."""
+    for i in items:
+        if step.get("product_id") and i["product_id"] == step["product_id"]:
+            return i
+        if step["type"] == "SERVICE_REQUEST" and i["action_id"] == step["action_id"]:
+            return i
+    return None
+
+
+# What a completed (approved + mock-submitted) item changes in the customer's profile.
+# Recorded as a system fact, so a blocked product can become ELIGIBLE afterwards.
+COMPLETION_EFFECTS: dict[str, dict] = {
+    "AADHAAR_SEEDING_REQUEST": {"aadhaar_seeded": True},
+    "EKYC_REQUEST": {"ekyc_done": True},
+    "PMJDY": {"has_savings_account": True},
+}
+
+
+def apply_completion(conn: sqlite3.Connection, item: dict) -> dict:
+    """Called after the officer approves an item. Returns the facts applied."""
+    effect = dict(COMPLETION_EFFECTS.get(item.get("action_id") or "")
+                  or COMPLETION_EFFECTS.get(item.get("product_id") or "") or {})
+    s = get(conn, item["session_id"])
+    if item.get("product_id"):
+        # an approved enrollment means the customer now holds the product
+        prof = profile(conn, s)
+        effect["enrollments"] = list(dict.fromkeys((prof.get("enrollments") or []) + [item["product_id"]]))
+    if not effect:
+        return {}
+    overrides = {**(s.get("profile_overrides") or {}), **effect}
+    update(conn, s["session_id"], profile_overrides=overrides)
+    from app import audit  # local import avoids a cycle at module load
+    audit.log(conn, s["session_id"], "system", "completion_effect", {"item_id": item["item_id"], "facts": effect})
+    return effect
+
+
+def derive_state(conn: sqlite3.Connection, session_id: str) -> str:
+    """Compute the state-machine position from data, then persist it."""
+    s = get(conn, session_id)
+    res = results(conn, s)
+    items = queue.list_items(conn, session_id=session_id)
+    open_statuses = {i["status"] for i in items}
+    plan = plan_actions(res, profile(conn, s))
+    pending_steps = [st for st in plan["steps"]
+                     if "after" not in st and _queued_item(items, st) is None]
+
+    if queue.REJECTED in open_statuses:
+        state = REVISING
+    elif next_question(conn, s, res)["question"] is not None:
+        state = ASKING
+    elif pending_steps:
+        state = PLANNING if not items else ACTING
+    elif queue.PENDING_APPROVAL in open_statuses:
+        state = AWAITING_APPROVAL
+    else:
+        state = DONE
+    update(conn, session_id, state=state)
+    return state
+
+
+def state_view(conn: sqlite3.Connection, session_id: str) -> dict:
+    derive_state(conn, session_id)
+    s = get(conn, session_id)
+    res = results(conn, s)
+    prof = profile(conn, s)
+    return {
+        "session_id": s["session_id"],
+        "customer_id": s["customer_id"],
+        "officer_id": s["officer_id"],
+        "state": s["state"],
+        "profile": prof,
+        "results": res,
+        "plan": plan_actions(res, prof),
+        "next_question": next_question(conn, s, res),
+        "queue_items": queue.list_items(conn, session_id=session_id),
+        "questions_asked": s["questions_asked"],
+        "messages": s.get("messages") or [],
+    }

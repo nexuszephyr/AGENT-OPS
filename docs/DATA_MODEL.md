@@ -49,6 +49,7 @@ CREATE TABLE sessions (
   state TEXT NOT NULL,                 -- INGESTING | EVALUATING | ASKING | PLANNING | ACTING | AWAITING_APPROVAL | REVISING | DONE
   profile_overrides_json TEXT DEFAULT '{}', -- facts learned in the interview
   questions_asked INTEGER DEFAULT 0,
+  asked_questions_json TEXT DEFAULT '[]', -- question_ids already asked (ranker skips them)
   messages_json TEXT DEFAULT '[]',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT
