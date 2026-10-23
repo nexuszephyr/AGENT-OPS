@@ -86,7 +86,8 @@ Queue transitions (enforced in `app/queue.py`, any other transition raises):
 ```
 DRAFT → PENDING_APPROVAL
 PENDING_APPROVAL → APPROVED | REJECTED
-REJECTED → REVISED → PENDING_APPROVAL     (revision_count += 1; max 2, then NEEDS_OFFICER)
+REJECTED → REVISED → PENDING_APPROVAL     (revision_count += 1)
+REJECTED → NEEDS_OFFICER                  (rejected again when revision_count is already 2)
 APPROVED → SUBMITTED                       (mock submission, only from APPROVED)
 ```
 
@@ -98,8 +99,10 @@ APPROVED → SUBMITTED                       (mock submission, only from APPROVE
 | `C002` | **Priya Nair**, 45, salaried, Bengaluru | has account, **IT payer**, 1 girl aged 6, 0 SSY accounts | PMJJBY, PMSBY, SSY `ELIGIBLE` · **APY `NOT_ELIGIBLE` (age + IT payer)** · PMJDY `NOT_ELIGIBLE` |
 | `C003` | **Lakshmamma**, 62, homemaker, Tumakuru | **no savings account**, not IT payer | PMJDY `ELIGIBLE` → unlocks PMSBY (`ELIGIBLE_BLOCKED` until account opens) · PMJJBY, APY `NOT_ELIGIBLE` (age) |
 | `C004` | **Arjun Kumar**, 24, gig worker, Bengaluru | has account, **IT status = null** | APY `UNKNOWN` → agent asks → becomes `ELIGIBLE` |
-| `C005` | **Suresh Rao**, 66, retired govt clerk, landholder | pension ₹18,000/month, `is_govt_employee` true | PMKISAN_DBT `NOT_ELIGIBLE` (pension + govt) · PMSBY `ELIGIBLE` |
-| `C006` | **Fathima Begum**, 29, self-employed tailor | has account, 2 girls (3 and 8), 1 existing SSY, already in PMSBY | SSY `ELIGIBLE` (second account) · PMSBY `ALREADY_ENROLLED` · PMJJBY, APY `ELIGIBLE` |
+| `C005` | **Suresh Rao**, 66, retired govt clerk, now farms his own land | has account, `occupation` = `farmer`, landholder, pension ₹18,000/month, `is_govt_employee` true | PMKISAN_DBT `NOT_ELIGIBLE` (pension + govt) · PMSBY `ELIGIBLE` |
+| `C006` | **Fathima Begum**, 29, self-employed tailor | has account, not IT payer, 2 girls (3 and 8), 1 existing SSY, already in PMSBY | SSY `ELIGIBLE` (second account) · PMSBY `ALREADY_ENROLLED` · PMJJBY, APY `ELIGIBLE` |
+
+Every field not called out above is seeded with a known value (`false`, `0`, `[]`), so the only `null`s are the deliberate unknowns: Ramesh's crop fields and Arjun's IT status. A stray `null` would make an extra product `UNKNOWN` and change the expected outcomes.
 
 Use `C001` and `C002` in the main demo; keep the others for judges' questions.
 

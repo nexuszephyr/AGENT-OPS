@@ -40,11 +40,11 @@ Customer language: {preferred_language}. Officer language: English.
 
 ```json
 {
-  "to_officer": "Ramesh qualifies for 4 products. PM-KISAN is blocked until his account is Aadhaar-seeded. I've raised that request first.",
+  "to_officer": "Ramesh qualifies for 4 products. PM-KISAN is blocked until his account is Aadhaar-seeded and eKYC is done. One question about his crop will settle PMFBY.",
   "to_customer": { "lang": "kn", "text": "..." },
   "question": { "question_id": "Q_NOTIFIED_CROP", "text": "..." },
   "highlights": [
-    { "product_id": "APY", "status": "NOT_ELIGIBLE", "because": ["Age must be 40 or below at enrollment", "Income-tax payers cannot join APY (from 1 Oct 2022)"] }
+    { "product_id": "PMKISAN_DBT", "status": "ELIGIBLE_BLOCKED", "because": ["Seed account with Aadhaar for DBT", "Complete Aadhaar eKYC"] }
   ],
   "next_step": "awaiting_answer | awaiting_approval | done"
 }
@@ -56,7 +56,7 @@ Customer language: {preferred_language}. Officer language: English.
 
 | Utterance | update_profile facts |
 |---|---|
-| "ನಾನು ಈ ಸಲ ರಾಗಿ ಬೆಳೆದಿದ್ದೀನಿ" ("I've grown ragi this time") | `{"grows_notified_crop": null}` + ask officer to confirm ragi is notified for Mandya. **Don't set true yourself** unless the officer confirms |
+| "ನಾನು ಈ ಸಲ ರಾಗಿ ಬೆಳೆದಿದ್ದೀನಿ" ("I've grown ragi this time") | nothing yet; ask the officer to confirm ragi is notified for Mandya. **Don't set true yourself** unless the officer confirms |
 | Officer: "Yes, ragi is notified in Mandya this kharif" | `{"grows_notified_crop": true, "in_notified_area": true}` |
 | "I don't pay any tax, I'm a delivery partner" | `{"is_income_tax_payer": false, "occupation": "gig_worker"}` |
 | "My daughter is 6" | `{"girl_children_under_10": 1}` |

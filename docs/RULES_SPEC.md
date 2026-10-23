@@ -47,7 +47,7 @@ A field is *missing* if its key is absent or `null` in the profile.
 Product status:
 1. If `product_id` is in `profile.enrollments` → `ALREADY_ENROLLED`.
 2. Evaluate `rules`: `F` → `NOT_ELIGIBLE`; `U` → `UNKNOWN`.
-3. If `T`: evaluate each `prerequisites` entry. If any one is unmet → `ELIGIBLE_BLOCKED` (listing `blocked_by` actions). If any prerequisite field is missing → `UNKNOWN`.
+3. If `T`: evaluate each `prerequisites` entry. If any one is unmet → `ELIGIBLE_BLOCKED` (listing `blocked_by` actions for every unmet one). Otherwise, if any prerequisite field is missing → `UNKNOWN`. As with rules, a known blocker wins over a missing field.
 4. Otherwise → `ELIGIBLE`.
 
 **Important:** when a rule fails, report **all** failed leaves, not just the first (so Priya's APY rejection shows both age and IT status). Evaluate every child; don't short-circuit.

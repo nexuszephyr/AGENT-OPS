@@ -17,6 +17,8 @@ This is the business-domain reference for the 7 products the agent handles. `app
 | RTC / Pahani | Karnataka land record (Record of Rights, Tenancy and Crops) |
 | IT payer | Person who paid income tax (relevant exclusion for APY and PM-KISAN) |
 
+How the eligibility bullets map to `products.json`: age, income-tax and similar checks are rules; "has a savings account" (and seeding / eKYC for PM-KISAN) are **prerequisites** that give `ELIGIBLE_BLOCKED`; "not already enrolled" is the `ALREADY_ENROLLED` status; auto-debit consent is collected as the `AUTODEBIT_CONSENT` document, not checked as a rule.
+
 ## Product summary
 
 | ID | Product | Type | Delivered by bank? |
@@ -59,7 +61,7 @@ This is the business-domain reference for the 7 products the agent handles. `app
   - Has a savings account
   - Gives auto-debit consent
   - Not already enrolled
-- **Documents:** consent-cum-declaration form, nominee details.
+- **Documents:** consent-cum-declaration form (auto-debit consent), nominee details, Aadhaar (masked) as KYC.
 
 ## 4. APY: Atal Pension Yojana
 
@@ -69,7 +71,7 @@ This is the business-domain reference for the 7 products the agent handles. `app
   - Has a savings account
   - **Not an income-tax payer** (exclusion effective from 1 Oct 2022) ⚠
   - Not already enrolled
-- **Documents:** APY registration form, nominee details, Aadhaar (masked), mobile number.
+- **Documents:** APY registration form (includes auto-debit consent), nominee details, Aadhaar (masked), mobile number.
 - **Demo trap:** Priya (45, IT payer) fails on **both** age and IT status. The explanation must list both rules.
 
 ## 5. SSY: Sukanya Samriddhi Yojana
@@ -88,7 +90,7 @@ The bank does not register farmers for PM-KISAN; it makes sure the farmer's acco
 - **Benefit:** ₹6,000 per year in three instalments of ₹2,000 to landholding farmer families.
 - **Eligibility:**
   - Occupation is farmer **and** owns cultivable land (`is_landholder == true`)
-  - **Exclusions** ⚠: income-tax payers; serving or retired government employees (except Group D / MTS); pensioners with monthly pension ≥ ₹10,000; registered professionals (doctors, engineers, lawyers, CAs, architects); constitutional post holders; institutional landholders
+  - **Exclusions** ⚠: income-tax payers; serving or retired government employees (except Group D / MTS); pensioners with monthly pension ≥ ₹10,000; registered professionals (doctors, engineers, lawyers, CAs, architects); constitutional post holders; institutional landholders. The prototype rules cover the first four; constitutional post holders and institutional landholders are not modelled (out of scope for branch walk-ins).
 - **Readiness checks (become actions, not eligibility):**
   - `aadhaar_seeded == true`; if false → action `AADHAAR_SEEDING_REQUEST`
   - `ekyc_done == true`; if false → action `EKYC_REQUEST`
@@ -116,6 +118,7 @@ OPEN_SAVINGS_ACCOUNT (PMJDY) ──► PMJJBY
                              ──► PMSBY
                              ──► APY
                              ──► PMFBY
+                             ──► PMKISAN_DBT
 AADHAAR_SEEDING_REQUEST ──► PMKISAN_DBT
 EKYC_REQUEST            ──► PMKISAN_DBT
 ```

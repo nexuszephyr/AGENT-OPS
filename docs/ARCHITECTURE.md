@@ -25,14 +25,14 @@
                          └──────────────► audit.py ◄─────────────┘
                                               │
                                      SQLite: bank.db
-              (customers, sessions, queue_items, enrollments, audit_log)
+              (customers, sessions, queue_items, audit_log)
 ```
 
 ## Mapping to CGI's pipeline
 
 | Stage | Components |
 |---|---|
-| Data ingestion | `fetch_customer` (core-banking mock), LLM `extract_facts` from the interview, optional Sarvam translation/STT |
+| Data ingestion | `fetch_customer` (core-banking mock), `update_profile` (facts the LLM extracts from the interview), optional Sarvam translation/STT |
 | Intelligent decision-making | `rules/engine.py` (eligibility), `planner/questions.py` (next question), `planner/documents.py` (prerequisites + docs order) |
 | Action execution | `forms/fill.py` (PDFs), `raise_request` (seeding / eKYC / account opening), `queue.py` (approval gate) |
 | Outcome reporting | `/dashboard`, `/audit`, Streamlit dashboard tab |
@@ -66,7 +66,7 @@
                                   APPROVED)       │       using reason → requeue
                                      │            └──► AWAITING_APPROVAL
                                      ▼
-                       all items resolved → DONE → REPORTED (dashboard updates)
+                       all items resolved → DONE (dashboard updates)
 ```
 
 Limits (stop rules):
