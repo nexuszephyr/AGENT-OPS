@@ -1,0 +1,117 @@
+# AGENTS.md: instructions for coding agents
+
+This file is the entry point for any AI coding assistant (Claude Code, Cursor, Codex, Copilot) working in this repo. Read it fully before writing code. `CLAUDE.md` imports this file.
+
+## What we are building
+
+**Yojana Saathi**: a BFSI agent for bank branch officers and banking correspondents (BCs). It screens a customer for government-linked financial products, decides eligibility with a deterministic rules engine, plans the documents and prerequisite actions, pre-fills enrollment forms, queues every action for officer approval, and reports outcomes on a branch dashboard.
+
+Hackathon: AgentOps '26 (MIT Bengaluru × CGI), 24 Oct 2026. Domain: **BFSI**. Track: **Autonomous workflow automation**.
+CGI's required pipeline, which the demo must show end to end:
+
+```
+Data ingestion → Intelligent decision-making → Action execution → Outcome reporting
+```
+
+Read next, in order:
+1. `README.md`: overview and how to run
+2. `docs/ARCHITECTURE.md`: components and data flow
+3. `REFERENCE.md`: the 7 products, eligibility rules, documents, sources
+4. `docs/RULES_SPEC.md`: rules JSON format and evaluation semantics
+5. `docs/DATA_MODEL.md`: customer schema, DB tables, demo personas
+6. `docs/TOOLS.md`: agent tool contracts
+7. `docs/PROMPTS.md`: LLM system prompt and output formats
+8. `docs/RESPONSIBLE_AI.md`: guardrails that must not be broken
+9. `docs/TASKS.md`: build plan and owners
+10. `docs/DEMO.md`: demo script and acceptance tests
+
+## Non-negotiable rules
+
+1. **The LLM never decides eligibility.** Only `app/rules/engine.py` returns ELIGIBLE / NOT_ELIGIBLE / UNKNOWN. The LLM may interview, extract facts, explain, choose the next question, and draft text. If you find yourself asking the model "is this customer eligible", stop and call `check_eligibility` instead.
+2. **Nothing is submitted without officer approval.** Every action (form, service request) goes into the approval queue as `PENDING_APPROVAL`. Only `POST /queue/{id}/approve` moves it on. No code path may skip the gate.
+3. **Every eligibility decision cites its rule and source URL.** Rules without a `source_url` fail validation at startup.
+4. **Missing or conflicting data → UNKNOWN, never a guess.** The agent asks a question or marks the product "verify manually".
+5. **Synthetic data only.** No real names, Aadhaar, PAN or account numbers. Aadhaar and account numbers are always stored and displayed masked (`XXXX-XXXX-1234`).
+6. **Everything the agent does is written to `audit_log`.**
+7. **Keep it demo-able.** Prefer simple, working code over clever abstractions. The demo matters more than generality.
+
+## Tech stack (do not add frameworks without a reason)
+
+| Layer | Choice |
+|---|---|
+| Language | Python 3.11+ |
+| API | FastAPI + Uvicorn |
+| UI | Streamlit (officer console, approval queue, dashboard) |
+| DB | SQLite via `sqlite3` (no ORM needed) |
+| LLM | Provider-agnostic wrapper in `app/agent/llm.py`; set via env vars |
+| PDFs | reportlab |
+| Translation / speech (optional) | Sarvam AI API |
+| Tests | pytest |
+
+Environment variables (put them in `.env`, never commit them):
+
+```
+LLM_PROVIDER=anthropic|openai|gemini
+LLM_MODEL=<model id>
+LLM_API_KEY=...
+SARVAM_API_KEY=...        # optional
+DB_PATH=app/data/bank.db
+```
+
+## Repo layout
+
+```
+app/
+  api/main.py              FastAPI app and routes
+  agent/
+    loop.py                orchestrator: tool-calling loop, state machine
+    tools.py               tool implementations (thin wrappers over modules below)
+    llm.py                 provider-agnostic chat + tool-calling client
+    prompts.py             system prompt, tool schemas
+  rules/
+    products.json          the 7 products' rules (source of truth)
+    engine.py              3-valued rule evaluator
+  planner/
+    documents.py           prerequisite and document dependency planner
+    questions.py           next-question ranker
+  forms/
+    fill.py                reportlab PDF generation
+  data/
+    seed.py                creates bank.db with the synthetic customers
+    bank.db                (generated, gitignored)
+  queue.py                 approval queue state machine
+  audit.py                 audit log helper
+ui/streamlit_app.py        officer console | approval queue | dashboard tabs
+tests/
+  test_rules.py            rule engine + the two demo traps
+  test_planner.py
+  test_queue.py
+docs/
+```
+
+## Commands
+
+```bash
+pip install -r requirements.txt
+python -m app.data.seed                  # build bank.db with demo customers
+uvicorn app.api.main:app --reload        # API on :8000
+streamlit run ui/streamlit_app.py        # UI on :8501
+pytest -q                                # must pass before every demo run
+```
+
+## Coding conventions
+
+- Type hints everywhere; use `pydantic` models for API and tool I/O.
+- Pure functions in `rules/` and `planner/` (no DB, no LLM): easy to test.
+- The tool functions in `agent/tools.py` return JSON-serialisable dicts that match `docs/TOOLS.md` exactly.
+- Status strings are constants defined once in `app/rules/engine.py`: `ELIGIBLE`, `ELIGIBLE_BLOCKED`, `NOT_ELIGIBLE`, `UNKNOWN`, `ALREADY_ENROLLED`, `VERIFY_MANUALLY` (see `docs/RULES_SPEC.md`).
+- Money in integer rupees. Dates in ISO 8601.
+- Log every tool call with `audit.log(session_id, actor, event, payload)`.
+- If an LLM call fails, the app must still show the rules-engine result (degrade gracefully).
+
+## Definition of done for any task
+
+- Code works end to end on at least one demo persona.
+- `pytest -q` passes.
+- No guardrail from the list above is weakened.
+- Update the relevant doc if a contract changed.
