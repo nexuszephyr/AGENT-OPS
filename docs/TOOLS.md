@@ -145,7 +145,7 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation) |
 | POST | `/sessions/{id}/message` | `{text, lang?}` | `{reply: AgentReply, state: SessionState}` |
 | GET | `/sessions/{id}/state` | | `SessionState` |
-| POST | `/sessions/{id}/facts` | `{facts, question_id?}` | `{result, state}`: officer enters facts directly (same validation as `update_profile`; works with no LLM) |
+| POST | `/sessions/{id}/facts` | `{facts, question_id?}` | `{result, state}`: officer enters facts directly (same validation as `update_profile`; works with no LLM). With `question_id` it resolves that pending question; empty `facts` = "customer doesn't know" → its products go to `VERIFY_MANUALLY` |
 | POST | `/sessions/{id}/act` | `{extra_fields: {PRODUCT_ID: {...}}}` | `{outcomes, state}`: deterministically queues every actionable plan step (rules-only fallback) |
 | GET | `/queue` | `?status=PENDING_APPROVAL` | list of queue items |
 | POST | `/queue/{item_id}/approve` | `{officer_id}` | item (→ `APPROVED`, then mock `SUBMITTED`) |
@@ -162,7 +162,8 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
   "profile": { ... },
   "results": [ <ProductResult> ],
   "plan": { "steps": [...], "checklist": [...] },
-  "next_question": { "question": {...} | null, "reason"?: "..." },
+  "next_question": { "question": {...} | null, "reason"?: "..." },   // the pending question while one awaits its answer
+  "pending_question": "Q_ITP" | null,
   "queue_items": [ ... ],
   "questions_asked": 1,
   "messages": [ {"role": "user"|"assistant", "content": "..."} ]

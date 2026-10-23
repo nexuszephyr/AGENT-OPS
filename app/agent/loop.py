@@ -55,7 +55,7 @@ def handle_rejection(conn: sqlite3.Connection, item_id: str) -> dict:
     _append(conn, sid, "user", prompt)
     reply = _agent_turn(conn, sid, prompt)
     # a revision turn says nothing about the pending customer question: leave it pending
-    return _finish(conn, sid, reply, clear_pending=False)
+    return _finish(conn, sid, reply)
 
 
 def set_facts(conn: sqlite3.Connection, session_id: str, facts: dict, question_id: str | None = None) -> dict:
@@ -63,8 +63,13 @@ def set_facts(conn: sqlite3.Connection, session_id: str, facts: dict, question_i
     out = ToolBox(conn, session_id, actor="officer").call(
         "update_profile", {"facts": facts, "evidence": "entered by officer"})
     if question_id:
-        sessions.mark_asked(conn, session_id, question_id)
-        sessions.clear_pending(conn, session_id)  # the officer just answered it
+        s = sessions.get(conn, session_id)
+        sessions.mark_asked(conn, session_id, question_id, set_pending=False)
+        # Answered by the officer, or "customer doesn't know" (empty facts): either way it's resolved.
+        if s.get("pending_question") == question_id:
+            sessions.clear_pending(conn, session_id)
+            audit.log(conn, session_id, "officer", "question_resolved",
+                      {"question_id": question_id, "how": "answered" if facts else "customer_does_not_know"})
     state = sessions.state_view(conn, session_id)
     return {"result": out, "state": state}
 
@@ -145,12 +150,20 @@ def rules_only_reply(conn: sqlite3.Connection, session_id: str, note: str = "") 
                       next_step="awaiting_answer" if question else "awaiting_approval", mode="rules_only")
 
 
-def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply, clear_pending: bool = True) -> dict:
+def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> dict:
+    # A pending question is resolved only when its fields got recorded, or the agent says the
+    # customer can't answer. An unrelated message leaves it pending (no early VERIFY_MANUALLY).
+    s = sessions.get(conn, session_id)
+    pending = s.get("pending_question")
+    if pending:
+        answered = sessions.pending_answered(conn, s)
+        if answered or reply.question_unanswered:
+            sessions.clear_pending(conn, session_id)
+            audit.log(conn, session_id, "agent", "question_resolved",
+                      {"question_id": pending, "how": "answered" if answered else "customer_does_not_know"})
     reply = _vet_question(conn, session_id, reply)
     if reply.question:
         sessions.mark_asked(conn, session_id, reply.question.question_id)
-    elif clear_pending:
-        sessions.clear_pending(conn, session_id)
     _append(conn, session_id, "assistant", reply.model_dump_json())
     return {"reply": reply.model_dump(), "state": sessions.state_view(conn, session_id)}
 
@@ -158,15 +171,24 @@ def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply, clear_
 def _vet_question(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> AgentReply:
     """The ranker (questions.py) decides which question is asked, not the model.
 
-    The model's question counts only if its id is the ranker's current pick.
-    Otherwise it is replaced by the ranker's question, or dropped if there is none,
-    so invented ids can't spend the question budget.
+    One question at a time: while a question is pending, any question in the reply
+    becomes that pending question (a re-ask costs no budget). Otherwise the model's
+    question counts only if its id is the ranker's current pick; anything else is
+    replaced by the ranker's question, or dropped, so invented ids can't spend the budget.
     """
     if reply.question is None:
         return reply
     s = sessions.get(conn, session_id)
-    if reply.question.question_id == s.get("pending_question"):
-        return reply  # re-asking the still-unanswered question: allowed, costs no budget
+    pending = sessions.QUESTIONS.get(s.get("pending_question") or "")
+    if pending:
+        if reply.question.question_id == pending["question_id"]:
+            return reply
+        audit.log(conn, session_id, "system", "question_replaced",
+                  {"model_question": reply.question.model_dump(), "ranker_question": pending["question_id"],
+                   "reason": "a question is still pending"})
+        return reply.model_copy(update={
+            "question": Question(question_id=pending["question_id"], text=pending["text_en"]),
+            "to_customer": None})
     pick = sessions.next_question(conn, s)["question"]
     if pick and reply.question.question_id == pick["question_id"]:
         return reply

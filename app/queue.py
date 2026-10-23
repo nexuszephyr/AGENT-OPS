@@ -61,7 +61,7 @@ def list_items(conn: sqlite3.Connection, status: str | None = None, session_id: 
     if session_id:
         q += " AND session_id = ?"
         args.append(session_id)
-    q += " ORDER BY created_at, item_id"
+    q += " ORDER BY rowid"  # insertion order: stable
     return [row_to_dict(r) for r in conn.execute(q, args).fetchall()]
 
 
