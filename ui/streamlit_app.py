@@ -129,13 +129,21 @@ with tab_console:
                                                   key=f"f_{state['session_id']}_{field}")
                             if num is not None:
                                 facts[field] = int(num)
-                    if st.button("Record answer", disabled=not facts):
+                    b1, b2 = st.columns(2)
+                    if b1.button("Record answer", disabled=not facts):
                         out = api("POST", f"/sessions/{state['session_id']}/facts",
                                   json={"facts": facts, "question_id": nq["question_id"]})
                         if out:
                             rej = out["result"].get("rejected_fields")
                             if rej:
                                 st.warning(f"Not recorded: {rej}")
+                            set_state(out["state"])
+                            st.rerun()
+                    # Resolves the question with no answer: its products go to VERIFY_MANUALLY.
+                    if b2.button("Customer doesn't know"):
+                        out = api("POST", f"/sessions/{state['session_id']}/facts",
+                                  json={"facts": {}, "question_id": nq["question_id"]})
+                        if out:
                             set_state(out["state"])
                             st.rerun()
             elif state["next_question"].get("reason"):

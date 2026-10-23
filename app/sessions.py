@@ -10,6 +10,7 @@ from app import queue
 from app.config import MAX_QUESTIONS
 from app.db import row_to_dict
 from app.planner.documents import plan_actions
+from app.planner.questions import BY_ID as QUESTIONS
 from app.planner.questions import pick_next_question
 from app.rules import engine
 
@@ -115,18 +116,39 @@ def next_question(conn: sqlite3.Connection, session: dict, res: list[dict] | Non
     return _ranker(session, res if res is not None else results(conn, session))
 
 
-def mark_asked(conn: sqlite3.Connection, session_id: str, question_id: str) -> None:
-    """The question has been put to the customer; it stays pending until the next turn."""
+def mark_asked(conn: sqlite3.Connection, session_id: str, question_id: str, set_pending: bool = True) -> None:
+    """The question has been put to the customer. It stays pending until resolved (see loop._finish)."""
     s = get(conn, session_id)
     asked = s.get("asked_questions") or []
     if question_id and question_id not in asked:
-        update(conn, session_id, asked_questions=asked + [question_id],
-               questions_asked=s["questions_asked"] + 1, pending_question=question_id)
+        cols: dict = {"asked_questions": asked + [question_id], "questions_asked": s["questions_asked"] + 1}
+        if set_pending:
+            cols["pending_question"] = question_id
+        update(conn, session_id, **cols)
 
 
 def clear_pending(conn: sqlite3.Connection, session_id: str) -> None:
-    """Called when a turn ends without a new question: the last one has been dealt with."""
+    """The pending question has been dealt with (answered, or the customer can't answer)."""
     update(conn, session_id, pending_question=None)
+
+
+def pending_answered(conn: sqlite3.Connection, session: dict) -> bool:
+    """True when every field the pending question asks about is now known."""
+    q = QUESTIONS.get(session.get("pending_question") or "")
+    if q is None:
+        return False
+    prof = profile(conn, session)
+    return all(prof.get(f) is not None for f in q["fields"])
+
+
+def pending_view(session: dict, res: list[dict]) -> dict | None:
+    """The pending question in the same shape as the ranker's output."""
+    q = QUESTIONS.get(session.get("pending_question") or "")
+    if q is None:
+        return None
+    resolves = [r["product_id"] for r in res if r["status"] == engine.UNKNOWN
+                and set(r["unknown_fields"]) <= set(q["fields"])]
+    return {**q, "resolves": resolves, "pending": True}
 
 
 def _queued_item(items: list[dict], step: dict) -> dict | None:
@@ -206,7 +228,8 @@ def state_view(conn: sqlite3.Connection, session_id: str) -> dict:
         "profile": prof,
         "results": res,
         "plan": plan_actions(res, prof),
-        "next_question": next_question(conn, s, res),
+        # while a question awaits its answer, it is the current question (one at a time)
+        "next_question": ({"question": pv} if (pv := pending_view(s, res)) else next_question(conn, s, res)),
         "queue_items": queue.list_items(conn, session_id=session_id),
         "questions_asked": s["questions_asked"],
         "pending_question": s.get("pending_question"),

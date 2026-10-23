@@ -143,14 +143,69 @@ def test_rules_only_reject_revise_approve(client):
 
 # 6 · an unanswered question ends as VERIFY_MANUALLY, not UNKNOWN forever ----------------------------
 
-def test_unanswered_question_becomes_verify_manually(conn):
+def test_rules_only_free_text_keeps_question_pending(conn):
+    """Rules-only mode can't interpret "not sure": the question stays pending and is shown again."""
     sid = loop.start_session(conn, "C004", "officer-1")["session_id"]
     out = loop.handle_message(conn, sid, "hello")              # rules-only: asks Q_ITP
     assert out["reply"]["question"]["question_id"] == "Q_ITP"
-    assert engine.status_of(out["state"]["results"], "APY") == engine.UNKNOWN  # still waiting
-    out = loop.handle_message(conn, sid, "not sure")           # nothing recorded, nothing left to ask
-    assert out["reply"]["question"] is None
+    out = loop.handle_message(conn, sid, "not sure")
+    assert out["reply"]["question"]["question_id"] == "Q_ITP"  # re-shown, no budget spent
+    assert out["state"]["pending_question"] == "Q_ITP"
+    assert sessions.get(conn, sid)["questions_asked"] == 1
+    assert engine.status_of(out["state"]["results"], "APY") == engine.UNKNOWN
+
+
+def test_officer_marks_customer_does_not_know(client):
+    """'Customer doesn't know' = /facts with no facts → resolved → VERIFY_MANUALLY."""
+    sid = client.post("/sessions", json={"customer_id": "C004"}).json()["session_id"]
+    client.post(f"/sessions/{sid}/message", json={"text": "hello"})      # asks Q_ITP
+    st = client.post(f"/sessions/{sid}/facts", json={"facts": {}, "question_id": "Q_ITP"}).json()["state"]
+    assert st["pending_question"] is None
+    assert {r["product_id"]: r["status"] for r in st["results"]}["APY"] == engine.VERIFY_MANUALLY
+
+
+def test_agent_flags_unanswerable_question(conn, monkeypatch):
+    sid = loop.start_session(conn, "C004", "officer-1")["session_id"]
+    loop.handle_message(conn, sid, "hello")                                # rules-only: asks Q_ITP
+    _fake(monkeypatch, json.dumps({"to_officer": "He doesn't know.", "question_unanswered": True}))
+    out = loop.handle_message(conn, sid, "not sure, my brother does the taxes")
+    assert out["state"]["pending_question"] is None
     assert engine.status_of(out["state"]["results"], "APY") == engine.VERIFY_MANUALLY
+
+
+def test_unrelated_message_does_not_finalize_pending_question(conn, monkeypatch):
+    """The reported gap: an unrelated turn with no re-ask must not push the product to VERIFY_MANUALLY."""
+    sid = loop.start_session(conn, "C004", "officer-1")["session_id"]
+    loop.handle_message(conn, sid, "hello")                                # rules-only: asks Q_ITP
+    _fake(monkeypatch, json.dumps({"to_officer": "The branch closes at 4 pm."}))
+    out = loop.handle_message(conn, sid, "what time does the branch close?")
+    assert out["state"]["pending_question"] == "Q_ITP"
+    assert engine.status_of(out["state"]["results"], "APY") == engine.UNKNOWN
+
+
+def test_answer_recorded_by_agent_resolves_pending(conn, monkeypatch):
+    sid = loop.start_session(conn, "C004", "officer-1")["session_id"]
+    loop.handle_message(conn, sid, "hello")                                # rules-only: asks Q_ITP
+    monkeypatch.setattr(config, "LLM_API_KEY", "x")
+    monkeypatch.setattr(config, "LLM_MODEL", "fake")
+
+    def run(system, history, tools, execute, max_calls=8):
+        execute("update_profile", {"facts": {"is_income_tax_payer": False}, "evidence": "no, I don't pay tax"})
+        return json.dumps({"to_officer": "Recorded."})
+
+    monkeypatch.setattr(llm, "run_tool_loop", run)
+    out = loop.handle_message(conn, sid, "no, I don't pay tax")
+    assert out["state"]["pending_question"] is None
+    assert engine.status_of(out["state"]["results"], "APY") == engine.ELIGIBLE
+
+
+def test_new_question_while_one_is_pending_becomes_the_pending_one(conn, monkeypatch):
+    sid = loop.start_session(conn, "C001", "officer-1")["session_id"]
+    loop.handle_message(conn, sid, "hello")                                # asks Q_NOTIFIED_CROP
+    _fake(monkeypatch, json.dumps({"to_officer": "?", "question": {"question_id": "Q_LAND", "text": "land?"}}))
+    out = loop.handle_message(conn, sid, "hmm")
+    assert out["reply"]["question"]["question_id"] == "Q_NOTIFIED_CROP"
+    assert sessions.get(conn, sid)["asked_questions"] == ["Q_NOTIFIED_CROP"]
 
 
 def test_question_limit_finalizes(conn):
