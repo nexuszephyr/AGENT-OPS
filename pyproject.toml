@@ -1,0 +1,64 @@
+[project]
+name = "yojana-saathi"
+version = "0.1.0"
+description = "BFSI onboarding agent: AgentOps '26 (MIT Bengaluru x CGI)"
+requires-python = ">=3.11"
+
+# --- ruff: lint + import order -------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["out", ".venv"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # import order
+  "B",        # bugbear
+  "UP",       # pyupgrade
+  "SIM",      # simplify
+  "S",        # bandit security rules
+  "BLE",      # blind except
+  "T20",      # no stray print() in app code
+]
+ignore = [
+  "SIM108",   # ternaries are not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]   # asserts and fake secrets are fine in tests
+"app/data/seed.py" = ["T201"]           # CLI output
+"scripts/**" = ["T201", "S603", "S607", "S310"]  # CI scripts print, run subprocesses, hit localhost
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# --- pytest + coverage ----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:starlette.*"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["app/agent/llm.py"]  # provider network code: exercised via a fake in tests
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
+
+# --- mypy: strict on the pure decision modules, lenient elsewhere ------------------------
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["app.rules.*", "app.planner.*", "app.privacy"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

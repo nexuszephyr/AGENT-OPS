@@ -75,10 +75,13 @@ def context_block(state: dict) -> str:
 
 # Provider-neutral tool schemas (JSON Schema). Converted per provider in llm.py.
 TOOL_SCHEMAS: list[dict] = [
-    {"name": "fetch_customer", "description": "Get the customer's current profile (bank record + facts learned in this session).",
+    {"name": "fetch_customer", "description": (
+         "Get the customer's current profile (bank record + facts learned in this session)."),
      "parameters": {"type": "object", "properties": {"customer_id": {"type": "string"}}}},
     {"name": "update_profile",
-     "description": "Record facts the customer or officer stated. Only known profile fields; bank-record values cannot be overwritten.",
+     "description": (
+         "Record facts the customer or officer stated. Only known profile fields; "
+         "bank-record values cannot be overwritten."),
      "parameters": {"type": "object", "properties": {
          "facts": {"type": "object", "description": "field -> value, e.g. {\"is_income_tax_payer\": false}"},
          "evidence": {"type": "string", "description": "the quote the facts come from"}},
@@ -89,12 +92,14 @@ TOOL_SCHEMAS: list[dict] = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "plan_actions", "description": "Ordered prerequisite actions, enrollments and document checklist.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "fill_form", "description": "Pre-fill an enrollment form for an ELIGIBLE product and queue it for officer approval.",
+    {"name": "fill_form", "description": (
+         "Pre-fill an enrollment form for an ELIGIBLE product and queue it for officer approval."),
      "parameters": {"type": "object", "properties": {
          "product_id": {"type": "string"},
          "extra_fields": {"type": "object", "description": "e.g. nominee_name, nominee_relation, girl_child_name"}},
          "required": ["product_id"]}},
-    {"name": "raise_request", "description": "Queue a service request (AADHAAR_SEEDING_REQUEST, EKYC_REQUEST) for officer approval.",
+    {"name": "raise_request", "description": (
+         "Queue a service request (AADHAAR_SEEDING_REQUEST, EKYC_REQUEST) for officer approval."),
      "parameters": {"type": "object", "properties": {
          "action_id": {"type": "string"}, "note": {"type": "string"}}, "required": ["action_id"]}},
     {"name": "revise_item", "description": "Fix a REJECTED queue item using the officer's reason.",

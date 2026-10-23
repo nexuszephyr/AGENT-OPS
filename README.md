@@ -34,6 +34,18 @@ pytest -q                                # 97 tests, no API key needed
 
 **No API key? It still works.** Without `LLM_API_KEY` the app runs in *rules-only mode*: statuses, plan and next question come from the deterministic modules; the officer records answers with the fact form and queues steps with "Prepare all". This is also the Wi-Fi-down backup for the demo.
 
+### CI
+
+Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required check:
+
+| Job | What it checks |
+|---|---|
+| Lint & types | ruff (style, bugs, bandit security rules), mypy (strict on `rules/`, `planner/`, `privacy`) |
+| Tests | pytest on Python 3.11 / 3.12 / 3.13, random order, coverage ≥ 80% |
+| Guardrails & docs sync | AGENTS.md rules checked statically (no approve tool for the LLM, pure rules engine, sourced rules, no full Aadhaar, no secrets) + docs ↔ code contracts |
+| End-to-end smoke | boots the real API and UI, walks DEMO.md A1–A7 over HTTP, renders the UI, fails on any server traceback |
+| Dependency audit | pip-audit for known CVEs (also runs weekly) |
+
 ### Code map
 
 | Path | What it is |
