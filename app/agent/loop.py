@@ -54,7 +54,8 @@ def handle_rejection(conn: sqlite3.Connection, item_id: str) -> dict:
         reason=item["reject_reason"], payload_json=json.dumps(item["payload"], ensure_ascii=False))
     _append(conn, sid, "user", prompt)
     reply = _agent_turn(conn, sid, prompt)
-    return _finish(conn, sid, reply)
+    # a revision turn says nothing about the pending customer question: leave it pending
+    return _finish(conn, sid, reply, clear_pending=False)
 
 
 def set_facts(conn: sqlite3.Connection, session_id: str, facts: dict, question_id: str | None = None) -> dict:
@@ -63,6 +64,7 @@ def set_facts(conn: sqlite3.Connection, session_id: str, facts: dict, question_i
         "update_profile", {"facts": facts, "evidence": "entered by officer"})
     if question_id:
         sessions.mark_asked(conn, session_id, question_id)
+        sessions.clear_pending(conn, session_id)  # the officer just answered it
     state = sessions.state_view(conn, session_id)
     return {"result": out, "state": state}
 
@@ -72,10 +74,17 @@ def auto_act(conn: sqlite3.Connection, session_id: str, extra_fields: dict | Non
     tb = ToolBox(conn, session_id, actor="agent")
     extra_fields = extra_fields or {}
     plan = tb.call("plan_actions", {})
+    items = queue.list_items(conn, session_id=session_id)
     outcomes = []
     for st in plan["steps"]:
         if "after" in st:
             continue  # still blocked; it gets queued once its prerequisites are approved
+        existing = sessions._queued_item(items, st)
+        if existing and existing["status"] != queue.PENDING_APPROVAL:
+            # already queued (rejected / escalated / submitted): leave it to the revise path
+            outcomes.append({"step": st["order"], "item_id": existing["item_id"],
+                             "status": existing["status"], "note": "already queued"})
+            continue
         if st["type"] == "SERVICE_REQUEST":
             outcomes.append({"step": st["order"], **tb.call("raise_request", {"action_id": st["action_id"]})})
         else:
@@ -136,11 +145,40 @@ def rules_only_reply(conn: sqlite3.Connection, session_id: str, note: str = "") 
                       next_step="awaiting_answer" if question else "awaiting_approval", mode="rules_only")
 
 
-def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> dict:
+def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply, clear_pending: bool = True) -> dict:
+    reply = _vet_question(conn, session_id, reply)
     if reply.question:
         sessions.mark_asked(conn, session_id, reply.question.question_id)
+    elif clear_pending:
+        sessions.clear_pending(conn, session_id)
     _append(conn, session_id, "assistant", reply.model_dump_json())
     return {"reply": reply.model_dump(), "state": sessions.state_view(conn, session_id)}
+
+
+def _vet_question(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> AgentReply:
+    """The ranker (questions.py) decides which question is asked, not the model.
+
+    The model's question counts only if its id is the ranker's current pick.
+    Otherwise it is replaced by the ranker's question, or dropped if there is none,
+    so invented ids can't spend the question budget.
+    """
+    if reply.question is None:
+        return reply
+    s = sessions.get(conn, session_id)
+    if reply.question.question_id == s.get("pending_question"):
+        return reply  # re-asking the still-unanswered question: allowed, costs no budget
+    pick = sessions.next_question(conn, s)["question"]
+    if pick and reply.question.question_id == pick["question_id"]:
+        return reply
+    audit.log(conn, session_id, "system", "question_replaced",
+              {"model_question": reply.question.model_dump(),
+               "ranker_question": pick["question_id"] if pick else None})
+    if pick:
+        return reply.model_copy(update={
+            "question": Question(question_id=pick["question_id"], text=pick["text_en"]),
+            "to_customer": None,  # the model's wording was for a different question
+        })
+    return reply.model_copy(update={"question": None, "to_customer": None})
 
 
 def _append(conn: sqlite3.Connection, session_id: str, role: str, content: str) -> None:

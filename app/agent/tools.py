@@ -78,6 +78,8 @@ class ToolBox:
         fn = self._tools.get(name)
         if fn is None:
             out = {"error": f"unknown tool {name}"}
+        elif not isinstance(args, dict):
+            out = {"error": f"arguments for {name} must be an object"}
         else:
             try:
                 out = fn(**args)
@@ -85,6 +87,10 @@ class ToolBox:
                 out = {"error": f"bad arguments for {name}: {e}"}
             except (queue.QueueError, sessions.SessionError, ValueError) as e:
                 out = {"error": str(e)}
+            except Exception as e:  # a tool bug must not look like "LLM unavailable"
+                out = {"error": f"internal error in {name}: {type(e).__name__}: {e}"}
+                audit.log(self.conn, self.session_id, "system", "error",
+                          {"tool": name, "exception": type(e).__name__, "message": str(e)})
         audit.log(self.conn, self.session_id, self.actor, "tool_result", {"tool": name, "result": out})
         return out
 
@@ -107,13 +113,16 @@ class ToolBox:
         return {"profile": self._profile()}
 
     def update_profile(self, facts: dict, evidence: str = "") -> dict:
-        if not evidence.strip():
+        if not isinstance(facts, dict):
+            return {"error": "facts must be an object of field -> value"}
+        if not isinstance(evidence, str) or not evidence.strip():
             return {"error": "evidence is required: quote what the customer or officer said"}
         s = self.session
         bank = sessions.get_customer(self.conn, s["customer_id"])
         overrides = dict(s.get("profile_overrides") or {})
+        system_fields = set(overrides.get(sessions.SYSTEM_FIELDS_KEY) or [])
         rejected = []
-        for fname, value in (facts or {}).items():
+        for fname, value in facts.items():
             typ = PROFILE_TYPES.get(fname)
             if typ is None:
                 rejected.append({"field": fname, "reason": "unknown field"})
@@ -128,8 +137,18 @@ class ToolBox:
             if fname == "occupation" and value not in OCCUPATIONS:
                 rejected.append({"field": fname, "reason": f"occupation must be one of {sorted(OCCUPATIONS)}"})
                 continue
+            # Compare against the EFFECTIVE profile, not just the bank record.
+            if fname in system_fields:
+                if overrides[fname] != value:
+                    rejected.append({"field": fname,
+                                     "reason": "set by a completed service request; cannot be changed by conversation"})
+                continue
             if bank.get(fname) is not None and bank[fname] != value:
                 rejected.append({"field": fname, "reason": "conflicts with bank record"})
+                continue
+            if overrides.get(fname) is not None and overrides[fname] != value and self.actor != "officer":
+                # only the officer may correct a fact recorded earlier in the interview
+                rejected.append({"field": fname, "reason": "conflicts with recorded fact"})
                 continue
             overrides[fname] = value
         sessions.update(self.conn, self.session_id, profile_overrides=overrides)
@@ -161,17 +180,17 @@ class ToolBox:
                     "hint": "Ask for these fields, then call fill_form again with extra_fields."}
         existing = queue.find_open(self.conn, self.session_id, queue.ENROLLMENT_FORM, product_id)
         if existing and existing["status"] == queue.PENDING_APPROVAL:
-            pdf = fill.render_pdf(existing["item_id"], f"{product_id} enrollment form", payload)
-            item = queue.replace_pending(self.conn, existing["item_id"], payload, pdf)
+            # validate + write first, render after (the PDF must always match the DB payload)
+            item = queue.replace_pending(self.conn, existing["item_id"], payload, None)
         elif existing:
-            return {"error": f"{product_id} already has item {existing['item_id']} in status {existing['status']}"}
+            return {"error": f"{product_id} already has item {existing['item_id']} in status "
+                             f"{existing['status']}; revise that item instead"}
         else:
             item = queue.create(self.conn, session_id=self.session_id, customer_id=s["customer_id"],
                                 kind=queue.ENROLLMENT_FORM, product_id=product_id, payload=payload,
                                 actor=self.actor)
-            pdf = fill.render_pdf(item["item_id"], f"{product_id} enrollment form", payload)
-            self.conn.execute("UPDATE queue_items SET pdf_path = ? WHERE item_id = ?", (pdf, item["item_id"]))
-            self.conn.commit()
+        pdf = fill.render_pdf(item["item_id"], f"{product_id} enrollment form", item["payload"])
+        queue.set_pdf(self.conn, item["item_id"], pdf)
         return {"item_id": item["item_id"], "status": queue.PENDING_APPROVAL, "pdf_path": pdf,
                 "missing_mandatory": []}
 
@@ -184,7 +203,9 @@ class ToolBox:
         via = catalog["actions"].get(action_id, {}).get("product")
         if via:
             return {"error": f"{action_id} is done by enrolling in {via}: call fill_form('{via}') instead"}
-        existing = queue.find_open(self.conn, self.session_id, queue.SERVICE_REQUEST, action_id)
+        # include SUBMITTED: a request that was already completed is never raised twice
+        existing = queue.find_open(self.conn, self.session_id, queue.SERVICE_REQUEST, action_id,
+                                   include_submitted=True)
         if existing:
             return {"item_id": existing["item_id"], "status": existing["status"], "note": "already raised"}
         s = self.session
@@ -192,9 +213,8 @@ class ToolBox:
                                         action_id=action_id)
         item = queue.create(self.conn, session_id=self.session_id, customer_id=s["customer_id"],
                             kind=queue.SERVICE_REQUEST, action_id=action_id, payload=payload, actor=self.actor)
-        pdf = fill.render_pdf(item["item_id"], catalog["actions"][action_id]["label"], payload)
-        self.conn.execute("UPDATE queue_items SET pdf_path = ? WHERE item_id = ?", (pdf, item["item_id"]))
-        self.conn.commit()
+        pdf = fill.render_pdf(item["item_id"], catalog["actions"][action_id]["label"], item["payload"])
+        queue.set_pdf(self.conn, item["item_id"], pdf)
         return {"item_id": item["item_id"], "status": queue.PENDING_APPROVAL}
 
     def revise_item(self, item_id: str, changes: dict, explanation: str = "") -> dict:
@@ -203,7 +223,19 @@ class ToolBox:
             return {"error": "item belongs to a different session"}
         if item["status"] == queue.NEEDS_OFFICER:
             return {"error": "revision limit reached: stop and hand this item to the officer"}
-        payload = {**item["payload"], **(changes or {})}
-        pdf = fill.render_pdf(item_id, f"{item['product_id'] or item['action_id']} (revised)", payload)
-        item = queue.revise(self.conn, item_id, changes or {}, explanation, pdf_path=pdf, actor=self.actor)
+        item = revise_and_render(self.conn, item_id, changes, explanation, actor=self.actor)
         return {"item_id": item_id, "status": item["status"], "revision_count": item["revision_count"]}
+
+
+def revise_and_render(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: str,
+                      actor: str) -> dict:
+    """Shared by the agent tool and the officer route: validate → write → render.
+
+    queue.revise raises before touching the DB if anything is wrong, and the PDF
+    is only re-rendered after the DB write succeeded, so the PDF served at
+    /queue/{id}/pdf always matches what the officer is approving.
+    """
+    item = queue.revise(conn, item_id, changes, explanation, actor=actor)
+    target = item["product_id"] or item["action_id"]
+    pdf = fill.render_pdf(item_id, f"{target} (revision {item['revision_count']})", item["payload"])
+    return queue.set_pdf(conn, item_id, pdf)

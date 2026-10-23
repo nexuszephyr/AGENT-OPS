@@ -4,11 +4,11 @@ Only masked identifiers ever reach a form (AGENTS.md rule 5).
 """
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 
 from app import config
+from app.privacy import assert_no_full_ids
 
 # Extra fields the officer/customer must supply per product (not in the profile).
 MANDATORY_EXTRA: dict[str, list[str]] = {
@@ -24,16 +24,11 @@ PROFILE_FIELDS = [
     "account_no_masked", "aadhaar_masked", "mobile_masked", "occupation",
 ]
 
-_FULL_AADHAAR = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
-
-
 def build_payload(product_id: str | None, profile: dict, extra: dict | None = None,
                   action_id: str | None = None) -> tuple[dict, list[str]]:
-    """Return (payload, missing_mandatory). Refuses unmasked 12-digit numbers."""
+    """Return (payload, missing_mandatory). Refuses unmasked 12-digit numbers anywhere in `extra`."""
     extra = dict(extra or {})
-    for k, v in extra.items():
-        if isinstance(v, str) and _FULL_AADHAAR.search(v):
-            raise ValueError(f"{k} looks like a full Aadhaar number; only masked IDs are allowed")
+    assert_no_full_ids(extra)
     payload = {k: profile.get(k) for k in PROFILE_FIELDS}
     payload["form"] = product_id or action_id
     payload["prepared_on"] = date.today().isoformat()

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app import audit, config, db, queue, sessions
 from app.agent import loop
+from app.agent.tools import revise_and_render
 from app.data import seed
 from app.planner.documents import plan_actions
 from app.rules import engine
@@ -67,6 +68,12 @@ class ApproveIn(BaseModel):
 class RejectIn(BaseModel):
     officer_id: str = "officer-1"
     reason: str
+
+
+class ReviseIn(BaseModel):
+    officer_id: str = "officer-1"
+    changes: dict
+    explanation: str = ""
 
 
 def _guard(fn, *args, **kwargs):
@@ -134,6 +141,17 @@ def reject(item_id: str, body: RejectIn):
     return {"item": queue.get(conn(), item_id), **turn}
 
 
+@app.post("/queue/{item_id}/revise")
+def revise(item_id: str, body: ReviseIn):
+    """Officer edits a REJECTED or NEEDS_OFFICER item. Works with no LLM (rules-only demo path).
+
+    The item goes back to PENDING_APPROVAL: the officer still approves it explicitly.
+    """
+    item = _guard(revise_and_render, conn(), item_id, body.changes,
+                  body.explanation or f"edited by {body.officer_id}", "officer")
+    return {"item": item, "state": sessions.state_view(conn(), item["session_id"])}
+
+
 @app.get("/queue/{item_id}/pdf")
 def pdf(item_id: str):
     item = _guard(queue.get, conn(), item_id)
@@ -155,8 +173,9 @@ def dashboard():
         "(SELECT MAX(created_at) FROM sessions WHERE customer_id = s.customer_id) GROUP BY customer_id"
     ).fetchall()
     eligible = 0
-    blocked, reasons, docs = Counter(), Counter(), Counter()
+    blocked, reasons, docs, states = Counter(), Counter(), Counter(), Counter()
     for row in latest:
+        states[sessions.derive_state(c, row["session_id"])] += 1
         s = sessions.get(c, row["session_id"])
         res = sessions.results(c, s)
         eligible += sum(r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED) for r in res)
@@ -173,8 +192,10 @@ def dashboard():
         "products_eligible": eligible,
         "items_pending": by_status[queue.PENDING_APPROVAL],
         "items_approved": by_status[queue.APPROVED] + by_status[queue.SUBMITTED],
-        "items_rejected": by_status[queue.REJECTED] + by_status[queue.NEEDS_OFFICER],
+        "items_rejected": by_status[queue.REJECTED],
+        "items_escalated": by_status[queue.NEEDS_OFFICER],
         "items_by_status": dict(by_status),
+        "sessions_by_state": dict(states),
         "blocked_by_action": dict(blocked),
         "not_eligible_reasons": dict(reasons.most_common()),
         "top_missing_docs": dict(docs.most_common()),

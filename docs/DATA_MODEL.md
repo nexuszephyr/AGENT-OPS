@@ -50,6 +50,7 @@ CREATE TABLE sessions (
   profile_overrides_json TEXT DEFAULT '{}', -- facts learned in the interview
   questions_asked INTEGER DEFAULT 0,
   asked_questions_json TEXT DEFAULT '[]', -- question_ids already asked (ranker skips them)
+  pending_question TEXT,               -- asked, answer not yet processed; UNKNOWNs aren't finalized while set
   messages_json TEXT DEFAULT '[]',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT
@@ -89,6 +90,7 @@ DRAFT → PENDING_APPROVAL
 PENDING_APPROVAL → APPROVED | REJECTED
 REJECTED → REVISED → PENDING_APPROVAL     (revision_count += 1)
 REJECTED → NEEDS_OFFICER                  (rejected again when revision_count is already 2)
+NEEDS_OFFICER → REVISED → PENDING_APPROVAL (officer only, via POST /queue/{id}/revise)
 APPROVED → SUBMITTED                       (mock submission, only from APPROVED)
 ```
 

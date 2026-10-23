@@ -116,14 +116,20 @@ with tab_console:
                 with st.expander(f"Answer: {nq['text_en']}", expanded=not health.get("llm_configured")):
                     if nq.get("officer_note"):
                         st.caption(nq["officer_note"])
+                    # Nothing is preselected: a field the officer doesn't set stays unknown (rule 4).
                     facts = {}
                     for field, kind in QUESTION_FACT_INPUTS.get(nq["question_id"], []):
                         if kind == "bool":
-                            facts[field] = st.radio(field, ["Yes", "No"], horizontal=True,
-                                                    key=f"f_{field}") == "Yes"
+                            ans = st.radio(field, ["Yes", "No"], index=None, horizontal=True,
+                                           key=f"f_{state['session_id']}_{field}")
+                            if ans is not None:
+                                facts[field] = ans == "Yes"
                         else:
-                            facts[field] = int(st.number_input(field, min_value=0, step=1, key=f"f_{field}"))
-                    if st.button("Record answer"):
+                            num = st.number_input(field, min_value=0, step=1, value=None,
+                                                  key=f"f_{state['session_id']}_{field}")
+                            if num is not None:
+                                facts[field] = int(num)
+                    if st.button("Record answer", disabled=not facts):
                         out = api("POST", f"/sessions/{state['session_id']}/facts",
                                   json={"facts": facts, "question_id": nq["question_id"]})
                         if out:
@@ -209,6 +215,22 @@ with tab_queue:
                     if out:
                         st.info(out["reply"]["to_officer"])
                     st.rerun()
+            elif i["status"] in ("REJECTED", "NEEDS_OFFICER"):
+                # Officer fixes it directly (always available; the only path in rules-only mode)
+                with st.expander("Edit and resubmit for approval",
+                                 expanded=i["status"] == "NEEDS_OFFICER" or not health.get("llm_configured")):
+                    locked = {"customer_id", "form", "prepared_on", "aadhaar_masked", "account_no_masked",
+                              "mobile_masked"}  # identity fields come from the bank record
+                    editable = [k for k in i["payload"] if k not in locked] or list(i["payload"])
+                    field = st.selectbox("Field", editable, key=f"rf_{i['item_id']}")
+                    value = st.text_input("New value", value=str(i["payload"].get(field) or ""),
+                                          key=f"rv_{i['item_id']}_{field}")
+                    if st.button("Save revision", key=f"rs_{i['item_id']}"):
+                        out = api("POST", f"/queue/{i['item_id']}/revise",
+                                  json={"officer_id": OFFICER, "changes": {field: value},
+                                        "explanation": f"officer corrected {field}"})
+                        if out:
+                            st.rerun()
 
     done = [i for i in items if i["status"] == "SUBMITTED"]
     if done:
@@ -220,12 +242,15 @@ with tab_queue:
 with tab_dash:
     d = api("GET", "/dashboard") or {}
     if d:
-        k = st.columns(5)
+        k = st.columns(6)
         k[0].metric("Customers screened", d["customers_screened"])
         k[1].metric("Products eligible", d["products_eligible"])
         k[2].metric("Pending approval", d["items_pending"])
         k[3].metric("Approved", d["items_approved"])
-        k[4].metric("Rejected / escalated", d["items_rejected"])
+        k[4].metric("Rejected", d["items_rejected"])
+        k[5].metric("Escalated to officer", d["items_escalated"])
+        if d.get("sessions_by_state"):
+            st.caption("Sessions by state: " + " · ".join(f"{s} {n}" for s, n in d["sessions_by_state"].items()))
         cols = st.columns(3)
         panels = [("Blocked by prerequisite", "blocked_by_action"),
                   ("Top not-eligible rules", "not_eligible_reasons"),

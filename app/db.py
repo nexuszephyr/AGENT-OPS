@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   profile_overrides_json TEXT DEFAULT '{}',
   questions_asked INTEGER DEFAULT 0,
   asked_questions_json TEXT DEFAULT '[]',
+  pending_question TEXT,
   messages_json TEXT DEFAULT '[]',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT
@@ -66,8 +67,22 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the first release: added in place to an existing bank.db.
+_MIGRATIONS = {
+    "sessions": {
+        "asked_questions_json": "TEXT DEFAULT '[]'",
+        "pending_question": "TEXT",
+    },
+}
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    for table, cols in _MIGRATIONS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for col, decl in cols.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     conn.commit()
 
 

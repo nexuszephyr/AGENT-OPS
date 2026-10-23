@@ -67,10 +67,12 @@
                                      │            └──► AWAITING_APPROVAL
                                      ▼
                        all items resolved → DONE (dashboard updates)
+
+   any item NEEDS_OFFICER (revision limit hit) → ESCALATED until the officer revises it
 ```
 
 Limits (stop rules):
-- Max **5** questions per session; after that the remaining UNKNOWNs become `VERIFY_MANUALLY`.
+- Max **5** questions per session. Remaining UNKNOWNs become `VERIFY_MANUALLY` as soon as nothing more can be asked (limit reached, or every useful question was asked and went unanswered) **and** no question is still awaiting its answer (`pending_question`).
 - Max **8** tool calls per agent turn, and max **2** revisions per rejected item; after that, escalate to the officer as `NEEDS_OFFICER`.
 - If the LLM call fails, the session falls back to "rules-only mode": statuses still shown, and the next question comes from a fixed order.
 

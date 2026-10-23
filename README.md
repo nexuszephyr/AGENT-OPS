@@ -29,7 +29,7 @@ cp .env.example .env            # add your LLM key (optional, see below)
 python -m app.data.seed --reset # run before every demo
 uvicorn app.api.main:app --reload        # terminal 1, :8000
 streamlit run ui/streamlit_app.py        # terminal 2, :8501
-pytest -q                                # 63 tests, no API key needed
+pytest -q                                # 97 tests, no API key needed
 ```
 
 **No API key? It still works.** Without `LLM_API_KEY` the app runs in *rules-only mode*: statuses, plan and next question come from the deterministic modules; the officer records answers with the fact form and queues steps with "Prepare all". This is also the Wi-Fi-down backup for the demo.

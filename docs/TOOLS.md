@@ -19,7 +19,11 @@ in:  { "facts": { "<field>": <value>, ... }, "evidence": "customer said: 'I grow
 out: { "profile": <Profile>, "rejected_fields": [ {"field": "...", "reason": "unknown field | bad type | conflicts with bank record"} ] }
 ```
 - Only fields defined in `docs/DATA_MODEL.md` §1 are accepted; types are validated.
-- **Conflict rule:** if the bank record has a non-null value and the new value differs (e.g. DB says `has_savings_account=true`, customer says no), do **not** overwrite. Return it in `rejected_fields` with reason `conflicts with bank record` → the agent must tell the officer.
+- **Conflict rule:** compared against the *effective* profile (bank record + facts recorded so far), never just the bank record. A differing value is not written; it comes back in `rejected_fields` with one of:
+  - `conflicts with bank record`: the DB has a non-null value (e.g. DB says `has_savings_account=true`, customer says no) → the agent must tell the officer
+  - `set by a completed service request; cannot be changed by conversation`: e.g. `aadhaar_seeded` after the seeding request was approved (system facts are listed under `_system_fields` in the overrides)
+  - `conflicts with recorded fact`: an earlier interview fact. Only the **officer** (`/facts` route, actor `officer`) may correct one of these
+- `facts` must be an object; anything else is a tool error.
 - `evidence` is required and stored in the audit log.
 
 ### `check_eligibility`
@@ -98,7 +102,7 @@ out: { "item_id": "Q-0005", "status": "PENDING_APPROVAL" }
 ```
 - Refuses unless `action_id` appears in `blocked_by` of at least one product for this customer.
 - `OPEN_SAVINGS_ACCOUNT` is not a service request: opening the account *is* the PMJDY enrollment, so the tool tells the agent to call `fill_form("PMJDY")`. The plan shows it as one `ENROLLMENT` step for PMJDY that carries `action_id` and `unlocks`.
-- Raising the same request twice returns the existing item.
+- Raising the same request twice returns the existing item, including one already `SUBMITTED`.
 - Creates a `queue_items` row with `kind=SERVICE_REQUEST`.
 
 ### Completion effects (system, not a tool)
@@ -119,6 +123,14 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 ```
 - Only for items in `REJECTED`. Only keys already in the payload can change.
 - After 2 revisions → status `NEEDS_OFFICER` and the tool returns an error telling the agent to stop.
+- **Order is validate → write → render** (`tools.revise_and_render`, shared with the officer route): status, keys and the identifier check all run before anything is written, and the PDF is re-rendered only after the DB write. A failed revision never changes the PDF the officer sees.
+- `changes` goes through the same full-Aadhaar check as `fill_form`.
+
+### Cross-cutting behaviour
+
+- **Identifier check** (`app/privacy.py`, one helper for every path): any string that looks like a full Aadhaar number (12 digits, plain or grouped 4-4-4 with space, `-` or `.`), anywhere in a nested payload, is refused by `fill_form`, `queue.create`, `replace_pending` and `revise`. `audit.log` also **redacts** such values (keeping the last 4 digits), because tool args are logged before they are validated.
+- **Tool errors stay tool errors:** any exception inside a tool (bad args, a bug) is returned to the model as `{"error": ...}` and logged as an `error` audit event. Only real provider failures switch the turn to rules-only mode.
+- **The ranker owns the question budget:** a question in the model's reply counts only if its `question_id` is the ranker's current pick (or a re-ask of the still-pending question). Otherwise it is replaced by the ranker's question, or dropped, and logged as `question_replaced`.
 
 ## 2. Tools the LLM must NOT have
 
@@ -137,7 +149,8 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | POST | `/sessions/{id}/act` | `{extra_fields: {PRODUCT_ID: {...}}}` | `{outcomes, state}`: deterministically queues every actionable plan step (rules-only fallback) |
 | GET | `/queue` | `?status=PENDING_APPROVAL` | list of queue items |
 | POST | `/queue/{item_id}/approve` | `{officer_id}` | item (→ `APPROVED`, then mock `SUBMITTED`) |
-| POST | `/queue/{item_id}/reject` | `{officer_id, reason}` | item (→ `REJECTED`); triggers agent revision turn |
+| POST | `/queue/{item_id}/reject` | `{officer_id, reason}` | item (→ `REJECTED`); triggers agent revision turn (rules-only: no-op, the officer revises) |
+| POST | `/queue/{item_id}/revise` | `{officer_id, changes, explanation?}` | officer edits a `REJECTED` or `NEEDS_OFFICER` item → back to `PENDING_APPROVAL` (still needs an explicit approve) |
 | GET | `/queue/{item_id}/pdf` | | PDF file |
 | GET | `/dashboard` | | `DashboardStats` |
 | GET | `/audit` | `?session_id=` | audit rows |

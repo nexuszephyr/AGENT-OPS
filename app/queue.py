@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from app import audit
 from app.config import MAX_REVISIONS
 from app.db import row_to_dict
+from app.privacy import UnmaskedIdentifierError, assert_no_full_ids
 
 DRAFT = "DRAFT"
 PENDING_APPROVAL = "PENDING_APPROVAL"
@@ -32,9 +33,9 @@ TRANSITIONS: dict[str, set[str]] = {
     REVISED: {PENDING_APPROVAL},
     APPROVED: {SUBMITTED},
     SUBMITTED: set(),
-    NEEDS_OFFICER: set(),
+    NEEDS_OFFICER: {REVISED},  # only the officer may revise an escalated item
 }
-OPEN_STATUSES = (DRAFT, PENDING_APPROVAL, REJECTED, REVISED)
+OPEN_STATUSES = (DRAFT, PENDING_APPROVAL, REJECTED, REVISED, NEEDS_OFFICER)
 
 
 class QueueError(ValueError):
@@ -74,19 +75,26 @@ def _move(conn: sqlite3.Connection, item: dict, new: str, **cols) -> dict:
     return get(conn, item["item_id"])
 
 
-def find_open(conn: sqlite3.Connection, session_id: str, kind: str, key: str) -> dict | None:
+def find_open(conn: sqlite3.Connection, session_id: str, kind: str, key: str,
+              include_submitted: bool = False) -> dict | None:
     col = "product_id" if kind == ENROLLMENT_FORM else "action_id"
-    rows = list_items(conn, session_id=session_id)
-    for r in rows:
-        if r["kind"] == kind and r[col] == key and r["status"] not in (SUBMITTED,):
+    for r in list_items(conn, session_id=session_id):
+        if r["kind"] == kind and r[col] == key and (include_submitted or r["status"] != SUBMITTED):
             return r
     return None
+
+
+def set_pdf(conn: sqlite3.Connection, item_id: str, pdf_path: str) -> dict:
+    conn.execute("UPDATE queue_items SET pdf_path = ? WHERE item_id = ?", (pdf_path, item_id))
+    conn.commit()
+    return get(conn, item_id)
 
 
 def create(conn: sqlite3.Connection, *, session_id: str, customer_id: str, kind: str,
            payload: dict, product_id: str | None = None, action_id: str | None = None,
            pdf_path: str | None = None, actor: str = "agent") -> dict:
     """Create an item and put it straight into PENDING_APPROVAL (DRAFT → PENDING)."""
+    _check_payload(payload)
     item_id = "Q-" + uuid.uuid4().hex[:6].upper()
     conn.execute(
         "INSERT INTO queue_items (item_id, session_id, customer_id, kind, product_id, action_id, "
@@ -106,6 +114,7 @@ def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_p
     item = get(conn, item_id)
     if item["status"] != PENDING_APPROVAL:
         raise QueueError(f"{item_id} is {item['status']}; only pending drafts can be replaced")
+    _check_payload(payload)
     conn.execute("UPDATE queue_items SET payload_json = ?, pdf_path = ? WHERE item_id = ?",
                  (json.dumps(payload, ensure_ascii=False), pdf_path, item_id))
     conn.commit()
@@ -135,20 +144,41 @@ def reject(conn: sqlite3.Connection, item_id: str, officer_id: str, reason: str)
     return item
 
 
-def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: str,
-           pdf_path: str | None = None, actor: str = "agent") -> dict:
-    """REJECTED → REVISED → PENDING_APPROVAL. Only existing payload keys may change."""
-    item = get(conn, item_id)
-    if item["status"] != REJECTED:
-        raise QueueError(f"{item_id} is {item['status']}; only REJECTED items can be revised")
+def _check_payload(payload: dict) -> None:
+    try:
+        assert_no_full_ids(payload)
+    except UnmaskedIdentifierError as e:
+        raise QueueError(str(e)) from e
+
+
+def validate_revision(item: dict, changes: dict, actor: str) -> dict:
+    """All checks, no side effects. Returns the would-be payload. Call BEFORE rendering anything."""
+    allowed = {REJECTED} | ({NEEDS_OFFICER} if actor == "officer" else set())
+    if item["status"] not in allowed:
+        who = "the officer" if item["status"] == NEEDS_OFFICER else "anyone"
+        raise QueueError(f"{item['item_id']} is {item['status']}; it cannot be revised by {actor} "
+                         f"(only REJECTED items, or NEEDS_OFFICER items by {who})")
+    if not isinstance(changes, dict) or not changes:
+        raise QueueError("changes must be a non-empty object")
     unknown = set(changes) - set(item["payload"])
     if unknown:
         raise QueueError(f"cannot add new payload fields: {sorted(unknown)}")
-    payload = {**item["payload"], **changes}
+    _check_payload(changes)
+    return {**item["payload"], **changes}
+
+
+def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: str,
+           actor: str = "agent") -> dict:
+    """REJECTED (or NEEDS_OFFICER, officer only) → REVISED → PENDING_APPROVAL.
+
+    Validates fully before writing anything. The caller renders the new PDF only
+    after this succeeds (see agent.tools.revise_and_render).
+    """
+    item = get(conn, item_id)
+    payload = validate_revision(item, changes, actor)
     conn.execute(
-        "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1, "
-        "pdf_path = COALESCE(?, pdf_path) WHERE item_id = ?",
-        (json.dumps(payload, ensure_ascii=False), pdf_path, item_id),
+        "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1 WHERE item_id = ?",
+        (json.dumps(payload, ensure_ascii=False), item_id),
     )
     conn.commit()
     item = _move(conn, get(conn, item_id), REVISED)
