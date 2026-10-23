@@ -10,7 +10,8 @@ There is deliberately no approve/submit tool (docs/TOOLS.md §2).
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app import audit, queue, sessions
 from app.forms import fill
@@ -87,7 +88,7 @@ class ToolBox:
                 out = {"error": f"bad arguments for {name}: {e}"}
             except (queue.QueueError, sessions.SessionError, ValueError) as e:
                 out = {"error": str(e)}
-            except Exception as e:  # a tool bug must not look like "LLM unavailable"
+            except Exception as e:  # noqa: BLE001 - a tool bug must not look like "LLM unavailable"
                 out = {"error": f"internal error in {name}: {type(e).__name__}: {e}"}
                 audit.log(self.conn, self.session_id, "system", "error",
                           {"tool": name, "exception": type(e).__name__, "message": str(e)})
