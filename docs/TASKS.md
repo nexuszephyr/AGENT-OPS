@@ -1,7 +1,18 @@
 # Build plan
 
 Owners: **Om** = rules, agent, planner, API · **Abhinav** = data, forms, UI, dashboard.
-Work on branches `om/*` and `abhinav/*`; merge to `main` only with tests passing.
+Work on branches `om/*` and `abhinav/*` (or `feat/*`, `ci/*`), and open every PR against `main`. `main` is protected: a PR needs the other person's approval and a green **CI passed** check.
+
+## Status (23 Oct, evening)
+
+Done and on `main`: T0–T13 and T16 (scaffold, rules engine, planner, forms, queue, audit, tools, agent loop, API, UI, `--reset`), plus CI (`.github/workflows/ci.yml`).
+
+Still open before the demo:
+- [ ] T1: verify the ⚠ values in REFERENCE.md and set `last_verified` in `products.json` (CI warns while they are `TODO`)
+- [ ] Run one full session against a real LLM key (Anthropic path; OpenAI is untested)
+- [ ] T14: Kannada output (rules-only mode shows English); Sarvam voice is a stretch goal
+- [ ] T15: DEMO.md A8 by hand (A1–A7 are automated in `scripts/smoke.py`)
+- [ ] T17 backup video, T18 slides + rehearsal
 
 ## Phase 0: tonight (setup + core logic)
 
@@ -51,19 +62,6 @@ Work on branches `om/*` and `abhinav/*`; merge to `main` only with tests passing
 
 **Never cut:** rules engine, approval gate, planner, audit log.
 
-## `requirements.txt` (starting point)
+## Dependencies
 
-```
-fastapi
-uvicorn[standard]
-pydantic>=2
-streamlit
-requests
-reportlab
-python-dotenv
-pytest
-# pick one LLM SDK:
-anthropic
-# openai
-# google-genai
-```
+Runtime: `requirements.txt` (Anthropic SDK by default; uncomment `openai` there for `LLM_PROVIDER=openai`). Dev and CI tools: `requirements-dev.txt` (ruff, mypy, pytest-cov, pytest-randomly, pip-audit).

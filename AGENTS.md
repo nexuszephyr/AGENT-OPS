@@ -51,7 +51,7 @@ Read next, in order:
 Environment variables (put them in `.env`, never commit them):
 
 ```
-LLM_PROVIDER=anthropic|openai|gemini
+LLM_PROVIDER=anthropic|openai   # openai path is untested
 LLM_MODEL=<model id>
 LLM_API_KEY=...
 SARVAM_API_KEY=...        # optional
@@ -80,12 +80,25 @@ app/
     seed.py                creates bank.db with the synthetic customers
     bank.db                (generated, gitignored)
   queue.py                 approval queue state machine
+  sessions.py              session store, derived state, completion effects
+  privacy.py               full-Aadhaar detection / redaction (every write path + audit log)
   audit.py                 audit log helper
+  db.py                    SQLite schema + in-place column migrations
+  config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs
 tests/
   test_rules.py            rule engine + the two demo traps
   test_planner.py
   test_queue.py
+  test_tools.py            guardrails inside the LLM tools
+  test_agent_loop.py       scripted fake-LLM turns
+  test_api.py              DEMO.md acceptance tests over HTTP
+  test_review_fixes.py     regression tests for the PR #2 review
+scripts/
+  check_guardrails.py      static checks for the non-negotiable rules
+  check_docs_sync.py       docs/ ↔ code contract checks
+  smoke.py                 boots API + UI and walks DEMO.md A1–A7
+.github/workflows/ci.yml   CI; the required check is "CI passed"
 docs/
 ```
 
@@ -93,7 +106,7 @@ docs/
 
 ```bash
 pip install -r requirements.txt
-python -m app.data.seed                  # build bank.db with demo customers
+python -m app.data.seed --reset          # (re)build bank.db with demo customers; wipes sessions, queue, audit
 uvicorn app.api.main:app --reload        # API on :8000
 streamlit run ui/streamlit_app.py        # UI on :8501
 pytest -q                                # must pass before every demo run
