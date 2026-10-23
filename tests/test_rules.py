@@ -7,7 +7,12 @@ import pytest
 from app.data.seed import build_profiles
 from app.rules import engine
 from app.rules.engine import (
-    ALREADY_ENROLLED, ELIGIBLE, ELIGIBLE_BLOCKED, NOT_ELIGIBLE, UNKNOWN, VERIFY_MANUALLY,
+    ALREADY_ENROLLED,
+    ELIGIBLE,
+    ELIGIBLE_BLOCKED,
+    NOT_ELIGIBLE,
+    UNKNOWN,
+    VERIFY_MANUALLY,
 )
 
 PROFILES = {p["customer_id"]: p for p in build_profiles()}

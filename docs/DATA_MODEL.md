@@ -46,7 +46,7 @@ CREATE TABLE sessions (
   session_id TEXT PRIMARY KEY,
   customer_id TEXT NOT NULL REFERENCES customers(customer_id),
   officer_id TEXT NOT NULL,
-  state TEXT NOT NULL,                 -- INGESTING | EVALUATING | ASKING | PLANNING | ACTING | AWAITING_APPROVAL | REVISING | DONE
+  state TEXT NOT NULL,                 -- INGESTING | EVALUATING | ASKING | PLANNING | ACTING | AWAITING_APPROVAL | REVISING | ESCALATED | DONE
   profile_overrides_json TEXT DEFAULT '{}', -- facts learned in the interview
   questions_asked INTEGER DEFAULT 0,
   asked_questions_json TEXT DEFAULT '[]', -- question_ids already asked (ranker skips them)
@@ -78,7 +78,7 @@ CREATE TABLE audit_log (
   ts TEXT DEFAULT CURRENT_TIMESTAMP,
   session_id TEXT,
   actor TEXT NOT NULL,                 -- agent | officer | system
-  event TEXT NOT NULL,                 -- tool_call | tool_result | llm_reply | approve | reject | revise | error
+  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | revise | escalate | submit_mock | completion_effect | error
   payload_json TEXT
 );
 ```

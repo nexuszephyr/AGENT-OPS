@@ -6,15 +6,16 @@
 ┌──────────────────────── Streamlit UI (ui/streamlit_app.py) ────────────────────────┐
 │  Tab 1: Officer console        Tab 2: Approval queue        Tab 3: Branch dashboard │
 │  (pick customer, chat,          (approve / reject with       (KPIs, blocked reasons,│
-│   live product status panel)     reason)                      audit log)            │
+│   live product status panel)     reason; officer edit)        audit log)            │
 └───────────────────────────────────────┬────────────────────────────────────────────┘
                                         │ HTTP (JSON)
 ┌───────────────────────────── FastAPI (app/api/main.py) ────────────────────────────┐
-│ /sessions  /sessions/{id}/message  /sessions/{id}/state  /queue  /dashboard  /audit │
+│ /sessions  …/message  …/state  …/facts  …/act  /queue (approve|reject|revise|pdf)   │
+│ /dashboard  /audit  /health  /customers                                             │
 └───────────────────────────────────────┬────────────────────────────────────────────┘
                                         │
                       ┌──── Agent orchestrator (app/agent/loop.py) ────┐
-                      │  LLM tool-calling loop + session state machine │
+                      │  LLM tool-calling loop; state in sessions.py   │
                       └──┬──────┬──────────┬──────────┬──────────┬────┘
                          │      │          │          │          │
                fetch_customer  check_   pick_next_  plan_     fill_form /
@@ -22,7 +23,7 @@
                   (SQLite)     (rules/    (planner/  (planner/  (forms/ + queue.py)
                                engine)    questions) documents)
                          │                                       │
-                         └──────────────► audit.py ◄─────────────┘
+                         └──────► audit.py (privacy.py redacts) ◄┘
                                               │
                                      SQLite: bank.db
               (customers, sessions, queue_items, audit_log)
@@ -86,6 +87,8 @@ Limits (stop rules):
 5. The LLM returns a structured `AgentReply` (see `docs/PROMPTS.md`).
 6. The API returns the reply + the fresh `SessionState` (product statuses, plan, queue items).
 7. The UI re-renders the status panel.
+
+**Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Customer doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
 
 ## Why each piece exists
 

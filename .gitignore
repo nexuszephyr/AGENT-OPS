@@ -6,3 +6,9 @@ __pycache__/
 app/data/bank.db
 out/
 .streamlit/secrets.toml
+.coverage
+coverage.xml
+junit.xml
+smoke-logs/
+.mypy_cache/
+.ruff_cache/
