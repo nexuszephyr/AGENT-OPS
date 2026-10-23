@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+app/data/bank.db
+out/
+.streamlit/secrets.toml

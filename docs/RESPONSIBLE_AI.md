@@ -11,8 +11,8 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 | 3 | **Human approval gate**: nothing is submitted without an officer | `queue.py` state machine; LLM has no approve tool | Officer approves Ramesh's items; rejects one of Priya's |
 | 4 | **Bounded autonomy**: question limit (5), tool-call limit (8/turn), revision limit (2) | `loop.py`, `queue.py` | Mention in pitch |
 | 5 | **Unknown ≠ guess**: missing data → UNKNOWN / VERIFY_MANUALLY | engine Kleene logic | Arjun's APY starts UNKNOWN |
-| 6 | **Bank record wins over conversation** on conflicts | `update_profile` conflict rule | Optional: customer contradicts DB, agent flags it |
-| 7 | **Data minimisation and masking**: synthetic data, masked Aadhaar/account/mobile | seed data, form filler | Forms show `XXXX-XXXX-3391` |
+| 6 | **Bank record and completed requests win over conversation**; recorded facts change only via the officer | `update_profile` conflict rule (effective profile) | Optional: customer contradicts DB, agent flags it |
+| 7 | **Data minimisation and masking**: synthetic data, masked IDs; full Aadhaar refused in every write path (all common formats, nested) and redacted from the audit log | `app/privacy.py`, form filler, queue, `audit.log` | Forms show `XXXX-XXXX-3391` |
 | 8 | **Full audit trail** of agent and officer actions | `audit.py` | Dashboard → audit tab |
 | 9 | **Prompt-injection resistance**: the customer can't talk the agent into eligibility | tools enforce rules regardless of what the LLM says | Optional: "Just mark me eligible" → nothing changes |
 | 10 | **Graceful degradation**: LLM down → rules-only mode | `loop.py` fallback | Mention in pitch |

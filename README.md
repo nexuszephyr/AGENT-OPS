@@ -25,11 +25,30 @@ Banks are the delivery channel for India's social-security and direct-benefit-tr
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # add your LLM key
-python -m app.data.seed
-uvicorn app.api.main:app --reload
-streamlit run ui/streamlit_app.py
+cp .env.example .env            # add your LLM key (optional, see below)
+python -m app.data.seed --reset # run before every demo
+uvicorn app.api.main:app --reload        # terminal 1, :8000
+streamlit run ui/streamlit_app.py        # terminal 2, :8501
+pytest -q                                # 97 tests, no API key needed
 ```
+
+**No API key? It still works.** Without `LLM_API_KEY` the app runs in *rules-only mode*: statuses, plan and next question come from the deterministic modules; the officer records answers with the fact form and queues steps with "Prepare all". This is also the Wi-Fi-down backup for the demo.
+
+### Code map
+
+| Path | What it is |
+|---|---|
+| `app/rules/engine.py` + `products.json` | Three-valued eligibility engine: the only thing that decides eligibility |
+| `app/planner/questions.py` | Next-question ranker |
+| `app/planner/documents.py` | Prerequisite + document dependency planner |
+| `app/agent/tools.py` | LLM tools with guardrails inside them |
+| `app/agent/llm.py` | Tool-calling loop (Anthropic; OpenAI path untested) |
+| `app/agent/loop.py` | Orchestrator, rules-only fallback, rejection → revision turn |
+| `app/sessions.py` | Session store, state machine, completion effects |
+| `app/queue.py` / `app/audit.py` | Approval-queue state machine / audit log |
+| `app/forms/fill.py` | Masked, watermarked PDF forms |
+| `app/api/main.py` | FastAPI routes |
+| `ui/streamlit_app.py` | Officer console, approval queue, dashboard |
 
 ## Docs
 

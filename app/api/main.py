@@ -1,0 +1,202 @@
+"""FastAPI app (docs/TOOLS.md §3).
+
+    uvicorn app.api.main:app --reload
+
+Approve / reject are officer routes. The LLM has no path to them.
+"""
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from app import audit, config, db, queue, sessions
+from app.agent import loop
+from app.agent.tools import revise_and_render
+from app.data import seed
+from app.planner.documents import plan_actions
+from app.rules import engine
+
+app = FastAPI(title="Yojana Saathi", version="0.1.0")
+_conn = None
+
+
+def conn():
+    global _conn
+    if _conn is None:
+        _conn = db.connect()
+        engine.load_products()  # fail fast on bad rules (AGENTS.md rule 3)
+        if _conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0:
+            seed.seed(_conn)
+    return _conn
+
+
+def set_connection(c) -> None:
+    """Tests inject an in-memory DB."""
+    global _conn
+    _conn = c
+
+
+# --- request bodies -------------------------------------------------------------------
+
+class SessionIn(BaseModel):
+    customer_id: str
+    officer_id: str = "officer-1"
+
+
+class MessageIn(BaseModel):
+    text: str
+    lang: str | None = None
+
+
+class FactsIn(BaseModel):
+    facts: dict
+    question_id: str | None = None
+
+
+class ActIn(BaseModel):
+    extra_fields: dict[str, dict] = {}
+
+
+class ApproveIn(BaseModel):
+    officer_id: str = "officer-1"
+
+
+class RejectIn(BaseModel):
+    officer_id: str = "officer-1"
+    reason: str
+
+
+class ReviseIn(BaseModel):
+    officer_id: str = "officer-1"
+    changes: dict
+    explanation: str = ""
+
+
+def _guard(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except (sessions.SessionError, queue.QueueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# --- routes ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    return {"ok": True, "llm_configured": config.llm_configured(), "provider": config.LLM_PROVIDER}
+
+
+@app.get("/customers")
+def customers():
+    return sessions.list_customers(conn())
+
+
+@app.post("/sessions")
+def create_session(body: SessionIn):
+    return _guard(loop.start_session, conn(), body.customer_id, body.officer_id)
+
+
+@app.post("/sessions/{session_id}/message")
+def message(session_id: str, body: MessageIn):
+    return _guard(loop.handle_message, conn(), session_id, body.text)
+
+
+@app.get("/sessions/{session_id}/state")
+def state(session_id: str):
+    return _guard(sessions.state_view, conn(), session_id)
+
+
+@app.post("/sessions/{session_id}/facts")
+def facts(session_id: str, body: FactsIn):
+    """Officer-entered facts. Works with no LLM (rules-only demo fallback)."""
+    return _guard(loop.set_facts, conn(), session_id, body.facts, body.question_id)
+
+
+@app.post("/sessions/{session_id}/act")
+def act(session_id: str, body: ActIn):
+    """Deterministically queue every actionable plan step (no-LLM fallback)."""
+    return _guard(loop.auto_act, conn(), session_id, body.extra_fields)
+
+
+@app.get("/queue")
+def list_queue(status: str | None = None, session_id: str | None = None):
+    return queue.list_items(conn(), status=status, session_id=session_id)
+
+
+@app.post("/queue/{item_id}/approve")
+def approve(item_id: str, body: ApproveIn):
+    item = _guard(queue.approve, conn(), item_id, body.officer_id)
+    applied = sessions.apply_completion(conn(), item)
+    return {"item": item, "applied": applied, "state": sessions.state_view(conn(), item["session_id"])}
+
+
+@app.post("/queue/{item_id}/reject")
+def reject(item_id: str, body: RejectIn):
+    item = _guard(queue.reject, conn(), item_id, body.officer_id, body.reason)
+    turn = loop.handle_rejection(conn(), item_id)  # agent tries a revision
+    return {"item": queue.get(conn(), item_id), **turn}
+
+
+@app.post("/queue/{item_id}/revise")
+def revise(item_id: str, body: ReviseIn):
+    """Officer edits a REJECTED or NEEDS_OFFICER item. Works with no LLM (rules-only demo path).
+
+    The item goes back to PENDING_APPROVAL: the officer still approves it explicitly.
+    """
+    item = _guard(revise_and_render, conn(), item_id, body.changes,
+                  body.explanation or f"edited by {body.officer_id}", "officer")
+    return {"item": item, "state": sessions.state_view(conn(), item["session_id"])}
+
+
+@app.get("/queue/{item_id}/pdf")
+def pdf(item_id: str):
+    item = _guard(queue.get, conn(), item_id)
+    if not item.get("pdf_path") or not Path(item["pdf_path"]).exists():
+        raise HTTPException(status_code=404, detail="no PDF for this item")
+    return FileResponse(item["pdf_path"], media_type="application/pdf", filename=f"{item_id}.pdf")
+
+
+@app.get("/audit")
+def audit_log(session_id: str | None = None, limit: int = 200):
+    return audit.fetch(conn(), session_id=session_id, limit=limit)
+
+
+@app.get("/dashboard")
+def dashboard():
+    c = conn()
+    latest = c.execute(
+        "SELECT session_id FROM sessions s WHERE created_at = "
+        "(SELECT MAX(created_at) FROM sessions WHERE customer_id = s.customer_id) GROUP BY customer_id"
+    ).fetchall()
+    eligible = 0
+    blocked, reasons, docs, states = Counter(), Counter(), Counter(), Counter()
+    for row in latest:
+        states[sessions.derive_state(c, row["session_id"])] += 1
+        s = sessions.get(c, row["session_id"])
+        res = sessions.results(c, s)
+        eligible += sum(r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED) for r in res)
+        for r in res:
+            blocked.update(r["blocked_by"])
+            if r["status"] == engine.NOT_ELIGIBLE:
+                reasons.update(f["id"] for f in r["failed_rules"])
+        for d in plan_actions(res, sessions.profile(c, s))["checklist"]:
+            docs[d["doc_id"]] += 1
+    items = queue.list_items(c)
+    by_status = Counter(i["status"] for i in items)
+    return {
+        "customers_screened": len(latest),
+        "products_eligible": eligible,
+        "items_pending": by_status[queue.PENDING_APPROVAL],
+        "items_approved": by_status[queue.APPROVED] + by_status[queue.SUBMITTED],
+        "items_rejected": by_status[queue.REJECTED],
+        "items_escalated": by_status[queue.NEEDS_OFFICER],
+        "items_by_status": dict(by_status),
+        "sessions_by_state": dict(states),
+        "blocked_by_action": dict(blocked),
+        "not_eligible_reasons": dict(reasons.most_common()),
+        "top_missing_docs": dict(docs.most_common()),
+    }
