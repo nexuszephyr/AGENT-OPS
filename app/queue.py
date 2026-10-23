@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app import audit
 from app.config import MAX_REVISIONS
@@ -42,8 +42,12 @@ class QueueError(ValueError):
     pass
 
 
+# Columns _move may set alongside status (never taken from user input).
+_MOVE_COLUMNS = {"reject_reason", "decided_by", "decided_at"}
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def get(conn: sqlite3.Connection, item_id: str) -> dict:
@@ -61,15 +65,18 @@ def list_items(conn: sqlite3.Connection, status: str | None = None, session_id: 
     if session_id:
         q += " AND session_id = ?"
         args.append(session_id)
-    q += " ORDER BY created_at, item_id"
-    return [row_to_dict(r) for r in conn.execute(q, args).fetchall()]
+    q += " ORDER BY rowid"  # insertion order: stable
+    return [d for r in conn.execute(q, args).fetchall() if (d := row_to_dict(r)) is not None]
 
 
 def _move(conn: sqlite3.Connection, item: dict, new: str, **cols) -> dict:
     if new not in TRANSITIONS[item["status"]]:
         raise QueueError(f"illegal transition {item['status']} → {new} for {item['item_id']}")
+    bad = set(cols) - _MOVE_COLUMNS
+    if bad:
+        raise QueueError(f"cannot set columns {sorted(bad)}")
     sets = ["status = ?"] + [f"{k} = ?" for k in cols]
-    conn.execute(f"UPDATE queue_items SET {', '.join(sets)} WHERE item_id = ?",
+    conn.execute(f"UPDATE queue_items SET {', '.join(sets)} WHERE item_id = ?",  # noqa: S608 - allowlisted columns
                  (new, *cols.values(), item["item_id"]))
     conn.commit()
     return get(conn, item["item_id"])

@@ -136,7 +136,7 @@ def approve(item_id: str, body: ApproveIn):
 
 @app.post("/queue/{item_id}/reject")
 def reject(item_id: str, body: RejectIn):
-    item = _guard(queue.reject, conn(), item_id, body.officer_id, body.reason)
+    _guard(queue.reject, conn(), item_id, body.officer_id, body.reason)
     turn = loop.handle_rejection(conn(), item_id)  # agent tries a revision
     return {"item": queue.get(conn(), item_id), **turn}
 
@@ -173,7 +173,10 @@ def dashboard():
         "(SELECT MAX(created_at) FROM sessions WHERE customer_id = s.customer_id) GROUP BY customer_id"
     ).fetchall()
     eligible = 0
-    blocked, reasons, docs, states = Counter(), Counter(), Counter(), Counter()
+    blocked: Counter[str] = Counter()
+    reasons: Counter[str] = Counter()
+    docs: Counter[str] = Counter()
+    states: Counter[str] = Counter()
     for row in latest:
         states[sessions.derive_state(c, row["session_id"])] += 1
         s = sessions.get(c, row["session_id"])

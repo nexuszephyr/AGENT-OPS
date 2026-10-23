@@ -14,7 +14,13 @@ from pydantic import ValidationError
 from app import audit, queue, sessions
 from app.agent import llm
 from app.agent.prompts import (
-    REVISION_PROMPT, TOOL_SCHEMAS, AgentReply, Highlight, Question, context_block, system_prompt,
+    REVISION_PROMPT,
+    TOOL_SCHEMAS,
+    AgentReply,
+    Highlight,
+    Question,
+    context_block,
+    system_prompt,
 )
 from app.agent.tools import ToolBox
 from app.rules import engine
@@ -34,7 +40,7 @@ def start_session(conn: sqlite3.Connection, customer_id: str, officer_id: str) -
 
 
 def handle_message(conn: sqlite3.Connection, session_id: str, text: str) -> dict:
-    s = sessions.get(conn, session_id)
+    sessions.get(conn, session_id)  # raises SessionError for an unknown session
     _append(conn, session_id, "user", text)
     audit.log(conn, session_id, "officer", "message", {"text": text})
     reply = _agent_turn(conn, session_id, text)

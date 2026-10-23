@@ -99,6 +99,17 @@ streamlit run ui/streamlit_app.py        # UI on :8501
 pytest -q                                # must pass before every demo run
 ```
 
+CI (`.github/workflows/ci.yml`) runs on every PR. Run the same checks locally before pushing:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check . && mypy app                 # lint + types
+pytest -p randomly --cov --cov-fail-under=80
+python scripts/check_guardrails.py       # the non-negotiable rules above, checked statically
+python scripts/check_docs_sync.py        # docs/ and code agree (products.json, tools, routes, prompt)
+python scripts/smoke.py                  # boots API + UI and walks DEMO.md A1–A7
+```
+
 ## Coding conventions
 
 - Type hints everywhere; use `pydantic` models for API and tool I/O.
@@ -112,6 +123,6 @@ pytest -q                                # must pass before every demo run
 ## Definition of done for any task
 
 - Code works end to end on at least one demo persona.
-- `pytest -q` passes.
+- `pytest -q` passes, and the CI job **CI passed** is green.
 - No guardrail from the list above is weakened.
 - Update the relevant doc if a contract changed.

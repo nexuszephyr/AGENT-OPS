@@ -255,7 +255,7 @@ with tab_dash:
         panels = [("Blocked by prerequisite", "blocked_by_action"),
                   ("Top not-eligible rules", "not_eligible_reasons"),
                   ("Top missing documents", "top_missing_docs")]
-        for col, (title, key) in zip(cols, panels):
+        for col, (title, key) in zip(cols, panels, strict=True):
             col.markdown(f"**{title}**")
             if d[key]:
                 col.bar_chart(d[key], horizontal=True, height=220)

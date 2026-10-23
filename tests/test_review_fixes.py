@@ -256,9 +256,10 @@ def test_needs_officer_is_escalated_not_done(client, conn):
         "PMJJBY": NOMINEE, "APY": {**NOMINEE, "pension_amount": 1000},
         "SSY": {"girl_child_name": "Zoya", "girl_child_dob": "2023-01-02"}}}).json()["state"]
     items = st["queue_items"]
-    target = items[0]["item_id"]
-    for i in items[1:]:
-        client.post(f"/queue/{i['item_id']}/approve", json={})
+    target = next(i["item_id"] for i in items if i["product_id"] == "PMJJBY")
+    for i in items:
+        if i["item_id"] != target:
+            client.post(f"/queue/{i['item_id']}/approve", json={})
     for n in range(config.MAX_REVISIONS):
         client.post(f"/queue/{target}/reject", json={"reason": f"wrong {n}"})
         client.post(f"/queue/{target}/revise", json={"changes": {"nominee_name": f"try{n}"}})

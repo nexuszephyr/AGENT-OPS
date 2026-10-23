@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app import queue
 from app.config import MAX_QUESTIONS
@@ -21,13 +21,17 @@ ESCALATED = "ESCALATED"  # an item hit the revision limit and is waiting on the 
 # Those facts can never be undone by conversation (see tools.update_profile).
 SYSTEM_FIELDS_KEY = "_system_fields"
 
+# Columns update() may write (keys are never taken from user input).
+_UPDATABLE = {"state", "profile_overrides", "asked_questions", "messages", "questions_asked",
+              "pending_question"}
+
 
 class SessionError(ValueError):
     pass
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def get_customer(conn: sqlite3.Connection, customer_id: str) -> dict:
@@ -65,6 +69,9 @@ def get(conn: sqlite3.Connection, session_id: str) -> dict:
 
 
 def update(conn: sqlite3.Connection, session_id: str, **cols) -> None:
+    bad = set(cols) - _UPDATABLE
+    if bad:
+        raise SessionError(f"cannot update columns {sorted(bad)}")
     sets, vals = [], []
     for k, v in cols.items():
         if k in ("profile_overrides", "asked_questions", "messages"):
@@ -73,7 +80,8 @@ def update(conn: sqlite3.Connection, session_id: str, **cols) -> None:
         vals.append(v)
     sets.append("updated_at = ?")
     vals.append(_now())
-    conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?", (*vals, session_id))
+    conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE session_id = ?",  # noqa: S608 - allowlisted
+                 (*vals, session_id))
     conn.commit()
 
 
