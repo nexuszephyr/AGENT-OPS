@@ -22,7 +22,9 @@ def plan_actions(results: list[dict], profile: dict, catalog: dict | None = None
     mandatory_extra = mandatory_extra or {}
 
     def missing_mandatory(pid: str) -> list[str]:
-        return [f for f in mandatory_extra.get(pid, []) if profile.get(f) in (None, "")]
+        # Full list by design: these are form fields, never profile fields, so the plan can't know what the
+        # officer said in chat. The agent calls fill_form once the conversation gives all of them.
+        return list(mandatory_extra.get(pid, []))
 
     doc_labels = catalog["documents"]
     actions = catalog["actions"]

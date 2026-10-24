@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app import audit, config, queue, sessions
+from app import audit, config, queue, sessions, timeline
 from app.agent import llm, loop
 from app.agent.prompts import SYSTEM_PROMPT, context_block
 from app.agent.tools import ToolBox
@@ -125,6 +125,12 @@ def test_rejection_fix_reaches_pending_sibling(conn, monkeypatch):
     assert a["payload"]["nominee_name"] == b["payload"]["nominee_name"] == "Anjali"
     assert a["status"] == b["status"] == queue.PENDING_APPROVAL
     assert a["revision_count"] == 1 and b["revision_count"] == 0
+    # the refill is audited with what changed, so the checker can see the draft changed (review on #46)
+    replaced = [e for e in _events(conn, sid, "queue_replace") if e["item_id"] == pmsby]
+    assert replaced == [{"item_id": pmsby, "before": {"nominee_name": "Anjeli"}, "after": {"nominee_name": "Anjali"}}]
+    shown = [e for e in timeline.build(sessions.get(conn, sid), audit.fetch(conn, session_id=sid))["events"]
+             if e["kind"] == "queue_replace"]
+    assert shown and shown[0]["stage"] == "act" and "nominee_name: Anjeli → Anjali" in shown[0]["summary"]
     # a pending-draft refill doesn't touch maker-checker: still prepared by the maker, decided by the checker
     assert b["prepared_by"] == "officer-1"
     with pytest.raises(queue.MakerCheckerError):

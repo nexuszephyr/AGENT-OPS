@@ -105,6 +105,8 @@ tests/
   test_timeline.py         session timeline: stages, folded tool calls, guardrail marks, live "running", redaction
   test_db_concurrency.py   the shared connection under concurrent agent writes + timeline polls
   test_scan.py             branch scan: ranking, urgency, totals, recommend-only (no writes), masking
+  test_maker_checker.py    maker-checker: the preparer can't approve, roles, prepared_by, 403s
+  test_prompt_hardening.py fake-LLM regressions from the live run (#12): plan fields, siblings, retry, officer-only facts
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks

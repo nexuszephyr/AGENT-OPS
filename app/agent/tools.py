@@ -189,7 +189,7 @@ class ToolBox:
         existing = queue.find_open(self.conn, self.session_id, queue.ENROLLMENT_FORM, product_id)
         if existing and existing["status"] == queue.PENDING_APPROVAL:
             # validate + write first, render after (the PDF must always match the DB payload)
-            item = queue.replace_pending(self.conn, existing["item_id"], payload, None)
+            item = queue.replace_pending(self.conn, existing["item_id"], payload, None, actor=self.actor)
         elif existing:
             return {"error": f"{product_id} already has item {existing['item_id']} in status "
                              f"{existing['status']}; revise that item instead"}

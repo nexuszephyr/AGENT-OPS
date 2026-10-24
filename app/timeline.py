@@ -40,7 +40,8 @@ TOOL_STAGE: dict[str, str] = {
 EVENT_STAGE: dict[str, str] = {
     "session_start": "ingest", "message": "ingest",
     "llm_reply": "decide", "question_resolved": "decide", "question_replaced": "decide", "error": "decide",
-    "reject": "act", "revise": "act", "escalate": "act", "approve": "act", "approval_denied": "act",
+    "reject": "act", "revise": "act", "queue_replace": "act", "escalate": "act", "approve": "act",
+    "approval_denied": "act",
     "submit_mock": "report", "completion_effect": "report",
 }
 # Covered by the tool event that wrote them, so not shown twice.
@@ -178,6 +179,10 @@ def _plain_event(row: dict) -> dict | None:
     elif ev == "revise":
         title = f"{who} revised {p.get('item_id', '')}"
         summary = _short(p.get("explanation") or ", ".join(p.get("changes") or {}))
+    elif ev == "queue_replace":
+        title = f"{who} refilled pending {p.get('item_id', '')}"
+        before, after = p.get("before") or {}, p.get("after") or {}
+        summary = _short(", ".join(f"{k}: {before.get(k)} → {after.get(k)}" for k in after) or "no field changed")
     elif ev == "completion_effect":
         facts = p.get("facts") or {}
         title = "Customer record updated after approval"

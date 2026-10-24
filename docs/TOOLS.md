@@ -95,7 +95,7 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "pdf_path": "...", "mi
 ```
 - **Refuses** (error) unless the product's current status is `ELIGIBLE`. The rules engine is re-run inside the tool; the LLM's claim isn't trusted.
 - Fills fields from the profile. If mandatory extra fields are missing (nominee, girl child's name, crop…; see `MANDATORY_EXTRA` in `app/forms/fill.py`), **no item is created**: it returns `{"item_id": null, "status": "NEEDS_INFO", "missing_mandatory": [...]}`. The agent asks, then calls `fill_form` again.
-- Calling `fill_form` again while the item is still `PENDING_APPROVAL` replaces that draft.
+- Calling `fill_form` again while the item is still `PENDING_APPROVAL` replaces that draft (`queue.replace_pending`). It's audited as `queue_replace` with `{item_id, before, after}` for the changed fields only, and shown on the session timeline, so the checker can see that a draft changed after it was first prepared. `prepared_by` and the revision count stay unchanged.
 - Refuses extra fields that look like a full 12-digit Aadhaar number.
 - Creates a `queue_items` row (`kind=ENROLLMENT_FORM`) at `PENDING_APPROVAL`.
 
