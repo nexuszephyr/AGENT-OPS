@@ -27,6 +27,7 @@ from components import (
     customer_bubble,
     customer_card,
     empty_state,
+    format_inr,
     key_values,
     kpi_tiles,
     pdf_first_page_png,
@@ -614,6 +615,10 @@ with tab_dash:
             ("Rejected", d["items_rejected"], d["items_rejected"] > 0),
             ("Escalated to officer", d["items_escalated"], d["items_escalated"] > 0),
         ])
+        kpi_tiles([("₹ unlocked", format_inr(d.get("value_inr_unlocked", 0), compact=True)),
+                   ("₹ eligible, not yet enrolled", format_inr(d.get("value_inr_eligible", 0), compact=True))])
+        st.caption("Indicative cover / annual benefit per product (not money paid out). Unlocked so far = every "
+                   "approved enrolment form in this branch's data; products without a single value are left out.")
         if d.get("sessions_by_state"):
             st.caption("Sessions by stage: " + ", ".join(f"{label(s)} {n}" for s, n in d["sessions_by_state"].items()))
         cols = st.columns(3, gap="medium")

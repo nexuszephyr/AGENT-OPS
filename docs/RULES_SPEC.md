@@ -67,9 +67,13 @@ Product status:
   "blocked_by": [],
   "required_docs": ["AADHAAR", "NOMINEE", "AUTODEBIT_CONSENT", "MOBILE"],
   "source_url": "https://jansuraksha.gov.in",
-  "last_verified": "2026-10-24"
+  "last_verified": "2026-10-24",
+  "value_inr": 12000,
+  "value_basis": "minimum guaranteed pension per year (₹1,000/month)"
 }
 ```
+
+`value_inr` / `value_basis` are copied from the product (#36). They are **indicative**: the cover amount or annual benefit, never money paid out. `value_inr` is `null` when there's no single number (PMJDY, SSY, PMFBY). Sums skip nulls rather than counting them as ₹0. The value is metadata only: it never changes a status.
 
 ## 5. Startup validation
 
@@ -79,6 +83,8 @@ Product status:
 - a product lacks `source_url` or `last_verified`
 - an `op` is not in the supported list
 - a `required_docs` entry isn't in the document catalogue
+- `value_inr` is missing, or is not an int ≥ 0 or `null` (a bool, float, string or negative number is rejected)
+- `value_basis` is missing or empty
 
 ## 6. `products.json` (initial version: verify the ⚠ values in REFERENCE.md before the demo)
 
@@ -108,6 +114,8 @@ Product status:
       "name": "Pradhan Mantri Jan Dhan Yojana",
       "category": "account",
       "benefit": "Zero-balance savings account with RuPay card",
+      "value_inr": null,
+      "value_basis": "savings account (no single value)",
       "rules": {"all": [
         {"id": "R-PMJDY-NO-ACCT", "field": "has_savings_account", "op": "is_false",
          "text": "Customer must not already hold a savings account"},
@@ -124,6 +132,8 @@ Product status:
       "name": "PM Jeevan Jyoti Bima Yojana",
       "category": "insurance",
       "benefit": "₹2 lakh life cover for ₹436 per year",
+      "value_inr": 200000,
+      "value_basis": "life cover",
       "rules": {"all": [
         {"id": "R-PMJJBY-AGE-MIN", "field": "age", "op": ">=", "value": 18, "text": "Age must be 18 or above"},
         {"id": "R-PMJJBY-AGE-MAX", "field": "age", "op": "<=", "value": 50, "text": "Age must be 50 or below at enrollment"}
@@ -140,6 +150,8 @@ Product status:
       "name": "PM Suraksha Bima Yojana",
       "category": "insurance",
       "benefit": "₹2 lakh accident cover for ₹20 per year",
+      "value_inr": 200000,
+      "value_basis": "accident cover",
       "rules": {"all": [
         {"id": "R-PMSBY-AGE-MIN", "field": "age", "op": ">=", "value": 18, "text": "Age must be 18 or above"},
         {"id": "R-PMSBY-AGE-MAX", "field": "age", "op": "<=", "value": 70, "text": "Age must be 70 or below"}
@@ -156,6 +168,8 @@ Product status:
       "name": "Atal Pension Yojana",
       "category": "pension",
       "benefit": "Guaranteed pension of ₹1,000–₹5,000 per month from age 60",
+      "value_inr": 12000,
+      "value_basis": "minimum guaranteed pension per year (₹1,000/month)",
       "rules": {"all": [
         {"id": "R-APY-AGE-MIN", "field": "age", "op": ">=", "value": 18, "text": "Age must be 18 or above"},
         {"id": "R-APY-AGE-MAX", "field": "age", "op": "<=", "value": 40, "text": "Age must be 40 or below at enrollment"},
@@ -174,6 +188,8 @@ Product status:
       "name": "Sukanya Samriddhi Yojana",
       "category": "savings",
       "benefit": "Tax-advantaged savings account for a girl child",
+      "value_inr": null,
+      "value_basis": "depends on deposits",
       "rules": {"all": [
         {"id": "R-SSY-GIRL", "field": "girl_children_under_10", "op": ">=", "value": 1,
          "text": "Must be parent/guardian of a girl child below 10 years"},
@@ -190,6 +206,8 @@ Product status:
       "name": "PM-KISAN DBT readiness",
       "category": "dbt",
       "benefit": "₹6,000 per year in three instalments to landholding farmer families",
+      "value_inr": 6000,
+      "value_basis": "income support per year",
       "rules": {"all": [
         {"id": "R-PMK-FARMER", "field": "occupation", "op": "==", "value": "farmer", "text": "Must be a farmer"},
         {"id": "R-PMK-LAND", "field": "is_landholder", "op": "is_true", "text": "Must own cultivable land"},
@@ -215,6 +233,8 @@ Product status:
       "name": "PM Fasal Bima Yojana",
       "category": "insurance",
       "benefit": "Crop insurance against natural risks (farmer premium 2% kharif / 1.5% rabi)",
+      "value_inr": null,
+      "value_basis": "depends on sum insured",
       "rules": {"all": [
         {"id": "R-PMFBY-FARMER", "field": "occupation", "op": "==", "value": "farmer",
          "text": "Must be a farmer (owner, tenant or sharecropper)"},
