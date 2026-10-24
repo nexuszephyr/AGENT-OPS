@@ -124,6 +124,10 @@ The Report stage, fourth tab. It's **read-only**: one `GET /dashboard` and one `
 
 On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a session to see outcomes".
 
+| After the Ramesh and Priya flows (full page) | Clicked PMJJBY: panels and table filter |
+|---|---|
+| ![full](screenshots/dashboard-full-1366.png) | ![filtered](screenshots/dashboard-filtered-1366.png) |
+
 ## Screenshots
 
 | | 1366×768 (projector) | 820px (tablet) |

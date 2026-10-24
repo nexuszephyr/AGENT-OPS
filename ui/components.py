@@ -948,6 +948,13 @@ def stage_chips(counts: Mapping[str, int], names: Mapping[str, str] | None = Non
     _html(state_chips(counts, names))
 
 
+def _count_axis() -> Any:
+    """Counts are whole customers: integer ticks only (no 0.1, 0.2 …)."""
+    import altair as alt
+
+    return alt.Axis(format="d", tickMinStep=1)
+
+
 def status_scale() -> Any:
     """Altair colour scale for eligibility statuses, in legend order (same as status_legend)."""
     import altair as alt
@@ -959,12 +966,12 @@ def funnel_chart(funnel: Sequence[Mapping[str, Any]]) -> Any:
     import altair as alt
 
     data = alt.Data(values=funnel_rows(funnel))
-    y = alt.Y("stage:N", sort=alt.EncodingSortField(field="order"), title=None)
+    y = alt.Y("stage:N", sort=alt.EncodingSortField(field="order"), title=None, axis=alt.Axis(labelLimit=220))
     bars = alt.Chart(data).mark_bar(color=COLORS["primary"]).encode(
         x=alt.X("count:Q", title=None, axis=None), y=y,
         tooltip=[alt.Tooltip("stage:N", title="Stage"), alt.Tooltip("text:N", title="Count")])
     text = alt.Chart(data).mark_text(align="left", dx=4, color=COLORS["ink"]).encode(x="count:Q", y=y, text="text:N")
-    return (bars + text).properties(height=46 * max(1, len(funnel)))
+    return (bars + text).properties(height=alt.Step(34))
 
 
 def product_status_chart(by_product: Mapping[str, Mapping[str, Any]]) -> Any:
@@ -977,14 +984,14 @@ def product_status_chart(by_product: Mapping[str, Mapping[str, Any]]) -> Any:
               if (p.get("statuses") or {}).get(k, 0)]
     pick = alt.selection_point(name="product", fields=["product_id"])
     return alt.Chart(alt.Data(values=values)).mark_bar().encode(
-        y=alt.Y("product_id:N", title=None, sort=list(by_product)),
-        x=alt.X("count:Q", title="Customers", stack="zero"),
+        y=alt.Y("product_id:N", title=None, sort=list(by_product), axis=alt.Axis(labelLimit=160)),
+        x=alt.X("count:Q", title="Customers", stack="zero", axis=_count_axis()),
         color=alt.Color("status:N", scale=status_scale(), legend=alt.Legend(title=None, orient="bottom")),
         order=alt.Order("order:Q"),
         opacity=alt.condition(pick, alt.value(1), alt.value(0.35)),
         tooltip=[alt.Tooltip("name:N", title="Product"), alt.Tooltip("status:N", title="Status"),
                  alt.Tooltip("count:Q", title="Customers")],
-    ).add_params(pick).properties(height=36 * max(1, len(by_product)))
+    ).add_params(pick).properties(height=alt.Step(30))
 
 
 def count_chart(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
@@ -992,10 +999,11 @@ def count_chart(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
     import altair as alt
 
     pick = alt.selection_point(name=name, fields=["id"])
-    data = alt.Data(values=[{**r, "short": str(r["label"])[:48]} for r in rows])
+    data = alt.Data(values=[{**r, "short": str(r["label"])[:60]} for r in rows])
     return alt.Chart(data).mark_bar(color=COLORS["primary"]).encode(
-        y=alt.Y("short:N", title=None, sort="-x"), x=alt.X("count:Q", title="Customers"),
+        y=alt.Y("short:N", title=None, sort="-x", axis=alt.Axis(labelLimit=230)),
+        x=alt.X("count:Q", title="Customers", axis=_count_axis()),
         opacity=alt.condition(pick, alt.value(1), alt.value(0.35)),
         tooltip=[alt.Tooltip("label:N", title="What"), alt.Tooltip("id:N", title="Id"),
                  alt.Tooltip("count:Q", title="Customers")],
-    ).add_params(pick).properties(height=max(120, 34 * len(rows)))
+    ).add_params(pick).properties(height=alt.Step(28))
