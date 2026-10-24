@@ -136,7 +136,7 @@ if catalog:
                   if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(p.get("last_verified", "")))]
     if unverified:
         warnings.append(f"last_verified is not a date for {', '.join(unverified)}: verify against the official "
-                        "scheme pages (REFERENCE.md ⚠) before the demo")
+                        "scheme pages (REFERENCE.md → Sources and verification) before the demo")
 
 
 # Rule 5: synthetic, masked data only ---------------------------------------------------------

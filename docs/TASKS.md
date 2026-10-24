@@ -10,7 +10,7 @@ Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every P
 
 | Issue | Owner | |
 |---|---|---|
-| #10 Verify every scheme rule against official sources and set `last_verified` | Om | open |
+| #10 Verify every scheme rule against official sources and set `last_verified` | Om | done (2026-10-24) |
 | #11 Run the agent end to end with a real Claude API key | Om | done |
 | #12 Harden prompts and reply parsing from the real-LLM run | Om | open |
 | #36 ₹ value unlocked: rupee value per product and dashboard tiles | Abhinav | planned |
