@@ -37,8 +37,7 @@ except ImportError:  # python-dotenv is optional at runtime
     pass
 
 API = os.getenv("API_URL", "http://localhost:8000")
-OFFICER = os.getenv("YS_OFFICER_ID", "officer-1")
-OFFICER_NAME = os.getenv("YS_OFFICER_NAME", "Officer 1")
+DEFAULT_OFFICER = os.getenv("YS_OFFICER_ID", "officer-1")  # initial "Acting as" choice
 BRANCH = os.getenv("YS_BRANCH", "Mandya (demo branch)")
 
 QUESTION_FACT_INPUTS = {
@@ -68,6 +67,9 @@ def api(method: str, path: str, **kw):
     except requests.ConnectionError:
         st.error(f"Can't reach the API at {API}. Start it with `uvicorn app.api.main:app`, then reload this page.")
         st.stop()
+    if r.status_code == 403:  # maker-checker refusal: show the reason, not the raw response
+        st.error(f"Refused: {r.json().get('detail', r.text)}")
+        return None
     if r.status_code >= 400:
         st.error(f"The API returned {r.status_code}: {r.text}")
         return None
@@ -85,8 +87,31 @@ def label(field: str) -> str:
 
 # --- header -----------------------------------------------------------------------
 health = api("GET", "/health") or {}
-app_header(llm_configured=bool(health.get("llm_configured")), provider=health.get("provider"),
-           officer=OFFICER_NAME, branch=BRANCH)
+officers = {o["officer_id"]: o for o in api("GET", "/officers") or []}
+header = st.container()
+_, col_officer = st.columns([3, 1])
+ids = list(officers) or [DEFAULT_OFFICER]
+OFFICER = col_officer.selectbox(
+    "Acting as", ids, index=ids.index(DEFAULT_OFFICER) if DEFAULT_OFFICER in ids else 0,
+    format_func=lambda oid: officers[oid]["name"] if oid in officers else oid, key="officer_id",
+    help="Maker-checker: the Banking Correspondent prepares, the Branch Manager approves or rejects.")
+me = officers.get(OFFICER, {"name": OFFICER, "role": ""})
+with header:
+    app_header(llm_configured=bool(health.get("llm_configured")), provider=health.get("provider"),
+               officer=f"{me['name']} ({me['role']})" if me["role"] else me["name"], branch=BRANCH)
+
+
+def officer_name(officer_id: str | None) -> str:
+    return officers.get(officer_id or "", {}).get("name", officer_id or "unknown")
+
+
+def decide_block(item: dict) -> str | None:
+    """Why the current officer can't approve/reject this item (mirrors app/queue.py), or None."""
+    if me["role"] != "checker":
+        return f"{me['name']} prepares items; only the Branch Manager can approve or reject. Switch \"Acting as\"."
+    if item.get("prepared_by") == OFFICER:
+        return "You prepared this item, so you can't approve or reject it (maker-checker)."
+    return None
 
 tab_console, tab_queue, tab_dash = st.tabs(["Officer console", "Approval queue", "Branch dashboard"])
 
@@ -227,7 +252,8 @@ with tab_queue:
         target = i["product_id"] or i["action_id"]
         with st.container(border=True):
             card_title(target, f"{i['item_id']} · {label(i['kind'])} · customer {i['customer_id']}"
-                               f" · revisions {i['revision_count']}", queue_badge(i["status"]))
+                               f" · revisions {i['revision_count']}", queue_badge(i["status"]),
+                       detail=f"Prepared by {officer_name(i.get('prepared_by'))}")
             if i.get("reject_reason"):
                 st.caption(f"Last rejection: {i['reject_reason']}")
             with st.expander("Form fields"):
@@ -239,15 +265,19 @@ with tab_queue:
                     c1.download_button("Download PDF", pdf, file_name=f"{i['item_id']}.pdf",
                                        key=f"pdf_{i['item_id']}", width="stretch")
             if i["status"] == "PENDING_APPROVAL":
-                if c2.button("Approve", key=f"ok_{i['item_id']}", type="primary", width="stretch"):
-                    api("POST", f"/queue/{i['item_id']}/approve", json={"officer_id": OFFICER})
-                    st.rerun()
+                blocked = decide_block(i)
+                if blocked:
+                    st.caption(f"🔒 {blocked}")
+                if (c2.button("Approve", key=f"ok_{i['item_id']}", type="primary", width="stretch",
+                              disabled=bool(blocked), help=blocked)
+                        and api("POST", f"/queue/{i['item_id']}/approve", json={"officer_id": OFFICER})):
+                    st.rerun()  # on a refusal, stay so the error stays visible
                 # A form submits the typed reason with the click, so the first click always counts
                 # (a disabled button only enables after the text box blurs). The API also requires a reason.
                 with c3.form(key=f"rej_{i['item_id']}", border=False):
                     reason = st.text_input("Reason for rejecting", key=f"why_{i['item_id']}",
                                            placeholder="e.g. Nominee name is Anjali, not Anjeli")
-                    rejected = st.form_submit_button("Reject")
+                    rejected = st.form_submit_button("Reject", disabled=bool(blocked), help=blocked)
                 if rejected:
                     if not reason.strip():
                         st.warning("Type a reason first, so the agent knows what to fix.")
@@ -265,6 +295,7 @@ with tab_queue:
                     field = st.selectbox("Field", editable, key=f"rf_{i['item_id']}", format_func=label)
                     value = st.text_input("New value", value=str(i["payload"].get(field) or ""),
                                           key=f"rv_{i['item_id']}_{field}")
+                    st.caption("Saving makes you this item's preparer, so someone else must approve it.")
                     if st.button("Save and send back", key=f"rs_{i['item_id']}", type="primary"):
                         out = api("POST", f"/queue/{i['item_id']}/revise",
                                   json={"officer_id": OFFICER, "changes": {field: value},
@@ -276,8 +307,10 @@ with tab_queue:
     if done:
         section_header("Approved and submitted", "Submission is mocked in this prototype.")
         st.dataframe([{"Item": i["item_id"], "Customer": i["customer_id"], "Kind": label(i["kind"]),
-                       "Product / action": i["product_id"] or i["action_id"], "Approved by": i["decided_by"],
-                       "Approved at": i["decided_at"]} for i in done], width="stretch", hide_index=True)
+                       "Product / action": i["product_id"] or i["action_id"],
+                       "Prepared by": officer_name(i.get("prepared_by")),
+                       "Approved by": officer_name(i["decided_by"]), "Approved at": i["decided_at"]}
+                      for i in done], width="stretch", hide_index=True)
 
 # --- Dashboard ------------------------------------------------------------------------------
 with tab_dash:

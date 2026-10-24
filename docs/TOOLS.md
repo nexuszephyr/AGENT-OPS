@@ -141,19 +141,22 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
 | GET | `/health` | | `{ok, llm_configured, provider}` |
+| GET | `/officers` | | list of `{officer_id, name, role}` (`role`: `maker` \| `checker`), for the UI's "Acting as" selector |
 | GET | `/customers` | | list of `{customer_id, name, age, occupation, district, preferred_language}` |
-| POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation) |
+| POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation). `officer_id` must be a known officer (400 otherwise); it becomes `prepared_by` on every item the session queues |
 | POST | `/sessions/{id}/message` | `{text, lang?}` | `{reply: AgentReply, state: SessionState}` |
 | GET | `/sessions/{id}/state` | | `SessionState` |
 | POST | `/sessions/{id}/facts` | `{facts, question_id?}` | `{result, state}`: officer enters facts directly (same validation as `update_profile`; works with no LLM). With `question_id` it resolves that pending question; empty `facts` = "customer doesn't know" → its products go to `VERIFY_MANUALLY` |
 | POST | `/sessions/{id}/act` | `{extra_fields: {PRODUCT_ID: {...}}}` | `{outcomes, state}`: deterministically queues every actionable plan step (rules-only fallback) |
 | GET | `/queue` | `?status=PENDING_APPROVAL` | list of queue items |
-| POST | `/queue/{item_id}/approve` | `{officer_id}` | item (→ `APPROVED`, then mock `SUBMITTED`) |
-| POST | `/queue/{item_id}/reject` | `{officer_id, reason}` | item (→ `REJECTED`); triggers agent revision turn (rules-only: no-op, the officer revises) |
-| POST | `/queue/{item_id}/revise` | `{officer_id, changes, explanation?}` | officer edits a `REJECTED` or `NEEDS_OFFICER` item → back to `PENDING_APPROVAL` (still needs an explicit approve) |
+| POST | `/queue/{item_id}/approve` | `{officer_id}` (**required**) | item (→ `APPROVED`, then mock `SUBMITTED`). **Maker-checker:** `officer_id` must be a `checker` and not the item's `prepared_by`, otherwise **403** and an `approval_denied` audit event; the item is unchanged |
+| POST | `/queue/{item_id}/reject` | `{officer_id, reason}` (both **required**) | item (→ `REJECTED`); triggers agent revision turn (rules-only: no-op, the officer revises). Same maker-checker rule and 403 as approve |
+| POST | `/queue/{item_id}/revise` | `{officer_id, changes, explanation?}` | officer edits a `REJECTED` or `NEEDS_OFFICER` item → back to `PENDING_APPROVAL` (still needs an explicit approve). The revising officer becomes the item's `prepared_by` (whoever last changed the content is its maker), so a different checker must approve it. Unknown `officer_id` → 400. Agent revisions keep the session officer |
 | GET | `/queue/{item_id}/pdf` | | PDF file |
 | GET | `/dashboard` | | `DashboardStats` |
 | GET | `/audit` | `?session_id=` | audit rows |
+
+Errors: `MakerCheckerError` → **403**; every other queue/session error → 400; a missing required field → 422.
 
 `SessionState`:
 ```json

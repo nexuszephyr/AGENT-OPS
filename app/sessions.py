@@ -6,7 +6,7 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 
-from app import queue
+from app import officers, queue
 from app.config import MAX_QUESTIONS
 from app.db import row_to_dict
 from app.planner.documents import plan_actions
@@ -53,6 +53,8 @@ def list_customers(conn: sqlite3.Connection) -> list[dict]:
 
 def create(conn: sqlite3.Connection, customer_id: str, officer_id: str) -> dict:
     get_customer(conn, customer_id)  # raises if missing
+    if officers.get_officer(officer_id) is None:
+        raise SessionError(f"unknown officer {officer_id}")
     sid = "S-" + uuid.uuid4().hex[:6].upper()
     conn.execute(
         "INSERT INTO sessions (session_id, customer_id, officer_id, state, updated_at) VALUES (?, ?, ?, ?, ?)",

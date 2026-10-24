@@ -19,6 +19,7 @@ Banks are the delivery channel for India's social-security and direct-benefit-tr
 | **Outcome reporting** | Branch dashboard: customers screened, enrollments pending, approved, blocked (with reasons), missing documents; plus a full audit log |
 
 **Human oversight:** a branch officer approves or rejects every action. If something is rejected, the agent revises it and puts it back in the queue.
+**Maker-checker:** the banking correspondent who prepares an item can't approve it; the branch manager does (enforced in `app/queue.py`).
 
 ## Quick start
 

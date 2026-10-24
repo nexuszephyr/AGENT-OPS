@@ -46,7 +46,9 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `key_values(dict)` | Form payloads and profiles instead of raw JSON |
 | `empty_state(title, hint)` | Any empty area: say what to do next |
 
-Header settings (env, optional): `YS_OFFICER_ID`, `YS_OFFICER_NAME`, `YS_BRANCH`.
+Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
+
+**Acting as** (header): pick Banking Correspondent (maker) or Branch Manager (checker) from `GET /officers`. Queue cards show "Prepared by …". Approve / Reject are disabled, with a caption and tooltip saying why, when the current officer is a maker or prepared the item (maker-checker, enforced in `app/queue.py`).
 
 ## Screenshots
 

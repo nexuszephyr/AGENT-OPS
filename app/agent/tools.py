@@ -229,14 +229,14 @@ class ToolBox:
 
 
 def revise_and_render(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: str,
-                      actor: str) -> dict:
+                      actor: str, officer_id: str | None = None) -> dict:
     """Shared by the agent tool and the officer route: validate → write → render.
 
     queue.revise raises before touching the DB if anything is wrong, and the PDF
     is only re-rendered after the DB write succeeded, so the PDF served at
     /queue/{id}/pdf always matches what the officer is approving.
     """
-    item = queue.revise(conn, item_id, changes, explanation, actor=actor)
+    item = queue.revise(conn, item_id, changes, explanation, actor=actor, officer_id=officer_id)
     target = item["product_id"] or item["action_id"]
     pdf = fill.render_pdf(item_id, f"{target} (revision {item['revision_count']})", item["payload"])
     return queue.set_pdf(conn, item_id, pdf)

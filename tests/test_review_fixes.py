@@ -43,7 +43,7 @@ def client(conn):
 def test_failed_revision_leaves_pdf_untouched(conn, approve_first):
     tb, iid = queued_form(conn)
     if approve_first:
-        queue.approve(conn, iid, "officer-1")  # SUBMITTED
+        queue.approve(conn, iid, "manager-1")  # SUBMITTED
     pdf = Path(queue.get(conn, iid)["pdf_path"])
     before = pdf.read_bytes()
     out = tb.call("revise_item", {"item_id": iid, "changes": {"nominee_name": "Hacked"}, "explanation": "x"})
@@ -54,7 +54,7 @@ def test_failed_revision_leaves_pdf_untouched(conn, approve_first):
 
 def test_successful_revision_rerenders_pdf(conn):
     tb, iid = queued_form(conn)
-    queue.reject(conn, iid, "officer-1", "Nominee is Anjali")
+    queue.reject(conn, iid, "manager-1", "Nominee is Anjali")
     out = tb.call("revise_item", {"item_id": iid, "changes": {"nominee_name": "Anjali"}, "explanation": "fix"})
     assert out["status"] == queue.PENDING_APPROVAL
     assert queue.get(conn, iid)["pdf_path"].endswith(f"{iid}.pdf")
@@ -64,7 +64,7 @@ def test_successful_revision_rerenders_pdf(conn):
 
 def test_revision_refuses_full_aadhaar(conn):
     tb, iid = queued_form(conn)
-    queue.reject(conn, iid, "officer-1", "Aadhaar is wrong")
+    queue.reject(conn, iid, "manager-1", "Aadhaar is wrong")
     out = tb.call("revise_item", {"item_id": iid, "changes": {"aadhaar_masked": "2345 6789 0123"},
                                   "explanation": "x"})
     assert "error" in out and "Aadhaar" in out["error"]
@@ -75,7 +75,7 @@ def test_revision_refuses_full_aadhaar(conn):
 
 def test_officer_revise_route_refuses_full_aadhaar(client, conn):
     _, iid = queued_form(conn)
-    queue.reject(conn, iid, "officer-1", "x")
+    queue.reject(conn, iid, "manager-1", "x")
     r = client.post(f"/queue/{iid}/revise", json={"changes": {"aadhaar_masked": "2345-6789-0123"}})
     assert r.status_code == 400
 
@@ -126,7 +126,7 @@ def test_rules_only_reject_revise_approve(client):
         "SSY": {"girl_child_name": "Anjali", "girl_child_dob": "2020-03-14"}}}).json()["state"]
     iid = next(i["item_id"] for i in st["queue_items"] if i["product_id"] == "PMJJBY")
 
-    out = client.post(f"/queue/{iid}/reject", json={"reason": "Nominee is Anjali"}).json()
+    out = client.post(f"/queue/{iid}/reject", json={"officer_id": "manager-1", "reason": "Nominee is Anjali"}).json()
     assert out["reply"]["mode"] == "rules_only" and out["item"]["status"] == "REJECTED"
     assert out["state"]["state"] == "REVISING"
 
@@ -137,7 +137,7 @@ def test_rules_only_reject_revise_approve(client):
     r = client.post(f"/queue/{iid}/revise", json={"changes": {"nominee_name": "Anjali"}}).json()
     assert r["item"]["status"] == "PENDING_APPROVAL" and r["item"]["payload"]["nominee_name"] == "Anjali"
     for i in client.get("/queue", params={"session_id": sid, "status": "PENDING_APPROVAL"}).json():
-        client.post(f"/queue/{i['item_id']}/approve", json={})
+        client.post(f"/queue/{i['item_id']}/approve", json={"officer_id": "manager-1"})
     assert client.get(f"/sessions/{sid}/state").json()["state"] == "DONE"
 
 
@@ -249,7 +249,7 @@ def test_conversation_cannot_undo_completed_request(client, conn):
     sid = client.post("/sessions", json={"customer_id": "C001"}).json()["session_id"]
     st = client.post(f"/sessions/{sid}/act", json={}).json()["state"]
     seed = next(i for i in st["queue_items"] if i["action_id"] == "AADHAAR_SEEDING_REQUEST")
-    client.post(f"/queue/{seed['item_id']}/approve", json={})
+    client.post(f"/queue/{seed['item_id']}/approve", json={"officer_id": "manager-1"})
 
     tb = ToolBox(conn, sid)
     out = tb.call("update_profile", {"facts": {"aadhaar_seeded": False}, "evidence": "I think it isn't linked"})
@@ -314,11 +314,11 @@ def test_needs_officer_is_escalated_not_done(client, conn):
     target = next(i["item_id"] for i in items if i["product_id"] == "PMJJBY")
     for i in items:
         if i["item_id"] != target:
-            client.post(f"/queue/{i['item_id']}/approve", json={})
+            client.post(f"/queue/{i['item_id']}/approve", json={"officer_id": "manager-1"})
     for n in range(config.MAX_REVISIONS):
-        client.post(f"/queue/{target}/reject", json={"reason": f"wrong {n}"})
+        client.post(f"/queue/{target}/reject", json={"officer_id": "manager-1", "reason": f"wrong {n}"})
         client.post(f"/queue/{target}/revise", json={"changes": {"nominee_name": f"try{n}"}})
-    out = client.post(f"/queue/{target}/reject", json={"reason": "still wrong"}).json()
+    out = client.post(f"/queue/{target}/reject", json={"officer_id": "manager-1", "reason": "still wrong"}).json()
     assert out["item"]["status"] == "NEEDS_OFFICER"
     assert out["state"]["state"] == "ESCALATED"
     d = client.get("/dashboard").json()
@@ -327,5 +327,5 @@ def test_needs_officer_is_escalated_not_done(client, conn):
     # the officer can fix it; it goes back to pending approval
     r = client.post(f"/queue/{target}/revise", json={"changes": {"nominee_name": "Zoya"}}).json()
     assert r["item"]["status"] == "PENDING_APPROVAL"
-    client.post(f"/queue/{target}/approve", json={})
+    client.post(f"/queue/{target}/approve", json={"officer_id": "manager-1"})
     assert client.get(f"/sessions/{sid}/state").json()["state"] == "DONE"

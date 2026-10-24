@@ -32,7 +32,8 @@ from app.privacy import redact_full_ids  # noqa: E402
 from app.rules import engine  # noqa: E402
 
 REPORT = ROOT / "docs" / "LIVE_LLM_RUN.md"
-OFFICER = "officer-1"
+OFFICER = "officer-1"  # the maker: starts sessions, so it prepares every item
+CHECKER = "manager-1"  # maker-checker (#39): only a checker approves or rejects
 SLOW_SECONDS = 30  # turns slower than this are flagged in the latency table
 
 
@@ -168,7 +169,7 @@ def scenario_a(r: Run) -> None:
 
     prereqs = [i for i in items if i["action_id"] in ("AADHAAR_SEEDING_REQUEST", "EKYC_REQUEST")]
     for i in prereqs:
-        sessions.apply_completion(c, queue.approve(c, i["item_id"], OFFICER))
+        sessions.apply_completion(c, queue.approve(c, i["item_id"], CHECKER))
     pmk = _status(c, sid, "PMKISAN_DBT")
     r.check(sc, "A5 approve seeding + eKYC → PMKISAN_DBT=ELIGIBLE",
             len(prereqs) == 2 and pmk == engine.ELIGIBLE, t, f"approved {len(prereqs)} prereqs; PMKISAN_DBT={pmk}")
@@ -194,7 +195,7 @@ def scenario_b(r: Run) -> None:
                 "skipped: no PMJJBY item to reject")
         return
     item_id = pmjjby["item_id"]
-    queue.reject(c, item_id, OFFICER, "Nominee name is Anjali, not Anjeli.")
+    queue.reject(c, item_id, CHECKER, "Nominee name is Anjali, not Anjeli.")
     t = r.turn(sc, "B2", sid, lambda: loop.handle_rejection(c, item_id))
     it = queue.get(c, item_id)
     r.check(sc, "B2 rejection → revised to Anjali, PENDING_APPROVAL, revision 1",

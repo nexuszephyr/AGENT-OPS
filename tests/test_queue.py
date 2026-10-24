@@ -17,23 +17,23 @@ def test_new_item_is_pending(item):
 
 
 def test_approve_then_mock_submit(conn, item):
-    out = queue.approve(conn, item["item_id"], "officer-1")
-    assert out["status"] == queue.SUBMITTED and out["decided_by"] == "officer-1"
+    out = queue.approve(conn, item["item_id"], "manager-1")
+    assert out["status"] == queue.SUBMITTED and out["decided_by"] == "manager-1"
 
 
 def test_cannot_approve_twice(conn, item):
-    queue.approve(conn, item["item_id"], "officer-1")
+    queue.approve(conn, item["item_id"], "manager-1")
     with pytest.raises(queue.QueueError):
-        queue.approve(conn, item["item_id"], "officer-1")
+        queue.approve(conn, item["item_id"], "manager-1")
 
 
 def test_reject_needs_reason(conn, item):
     with pytest.raises(queue.QueueError):
-        queue.reject(conn, item["item_id"], "officer-1", "  ")
+        queue.reject(conn, item["item_id"], "manager-1", "  ")
 
 
 def test_reject_revise_requeue(conn, item):
-    queue.reject(conn, item["item_id"], "officer-1", "Nominee is Anjali")
+    queue.reject(conn, item["item_id"], "manager-1", "Nominee is Anjali")
     out = queue.revise(conn, item["item_id"], {"nominee_name": "Anjali"}, "fixed spelling")
     assert out["status"] == queue.PENDING_APPROVAL
     assert out["revision_count"] == 1
@@ -41,7 +41,7 @@ def test_reject_revise_requeue(conn, item):
 
 
 def test_revise_cannot_add_fields(conn, item):
-    queue.reject(conn, item["item_id"], "officer-1", "x")
+    queue.reject(conn, item["item_id"], "manager-1", "x")
     with pytest.raises(queue.QueueError):
         queue.revise(conn, item["item_id"], {"approved": True}, "sneaky")
 
@@ -54,15 +54,15 @@ def test_cannot_revise_pending_item(conn, item):
 def test_escalates_after_max_revisions(conn, item):
     iid = item["item_id"]
     for i in range(MAX_REVISIONS):
-        queue.reject(conn, iid, "officer-1", f"still wrong {i}")
+        queue.reject(conn, iid, "manager-1", f"still wrong {i}")
         queue.revise(conn, iid, {"nominee_name": f"try{i}"}, "retry")
-    out = queue.reject(conn, iid, "officer-1", "still wrong")
+    out = queue.reject(conn, iid, "manager-1", "still wrong")
     assert out["status"] == queue.NEEDS_OFFICER
     with pytest.raises(queue.QueueError):
         queue.revise(conn, iid, {"nominee_name": "again"}, "x")
 
 
 def test_audit_records_officer_actions(conn, item):
-    queue.approve(conn, item["item_id"], "officer-1")
+    queue.approve(conn, item["item_id"], "manager-1")
     events = [r["event"] for r in conn.execute("SELECT event FROM audit_log").fetchall()]
     assert "approve" in events and "queue_create" in events

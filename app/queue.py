@@ -2,6 +2,9 @@
 
 Only `approve()` moves an item past PENDING_APPROVAL, and only the officer API
 calls it. The LLM has no tool that reaches approve() or submit().
+
+Maker-checker (issue #39): approve() and reject() need a checker who is not the
+item's `prepared_by` (the maker). The rule lives here, not in the API or UI.
 """
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime
 
-from app import audit
+from app import audit, officers
 from app.config import MAX_REVISIONS
 from app.db import row_to_dict
 from app.privacy import UnmaskedIdentifierError, assert_no_full_ids
@@ -40,6 +43,10 @@ OPEN_STATUSES = (DRAFT, PENDING_APPROVAL, REJECTED, REVISED, NEEDS_OFFICER)
 
 class QueueError(ValueError):
     pass
+
+
+class MakerCheckerError(QueueError):
+    """The officer may not decide this item (not a checker, unknown, or its own preparer)."""
 
 
 # Columns _move may set alongside status (never taken from user input).
@@ -103,11 +110,13 @@ def create(conn: sqlite3.Connection, *, session_id: str, customer_id: str, kind:
     """Create an item and put it straight into PENDING_APPROVAL (DRAFT → PENDING)."""
     _check_payload(payload)
     item_id = "Q-" + uuid.uuid4().hex[:6].upper()
+    # the maker is the session's officer, whether the agent or the rules-only /act path queued it
+    row = conn.execute("SELECT officer_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
     conn.execute(
         "INSERT INTO queue_items (item_id, session_id, customer_id, kind, product_id, action_id, "
-        "payload_json, pdf_path, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "payload_json, pdf_path, status, prepared_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (item_id, session_id, customer_id, kind, product_id, action_id,
-         json.dumps(payload, ensure_ascii=False), pdf_path, DRAFT),
+         json.dumps(payload, ensure_ascii=False), pdf_path, DRAFT, row[0] if row else None),
     )
     conn.commit()
     item = _move(conn, get(conn, item_id), PENDING_APPROVAL)
@@ -128,9 +137,26 @@ def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_p
     return get(conn, item_id)
 
 
+def _check_checker(conn: sqlite3.Connection, item: dict, officer_id: str) -> None:
+    """Raise MakerCheckerError (and audit it) unless officer_id is a checker who didn't prepare item."""
+    if officers.get_officer(officer_id) is None:
+        reason = f"unknown officer {officer_id}"
+    elif not officers.is_checker(officer_id):
+        reason = f"{officer_id} is a maker; only a checker (branch manager) can approve or reject"
+    elif officer_id == item.get("prepared_by"):
+        reason = f"{officer_id} prepared {item['item_id']}; the preparer cannot approve or reject it"
+    else:
+        return
+    audit.log(conn, item["session_id"], "officer", "approval_denied",
+              {"item_id": item["item_id"], "officer_id": officer_id, "reason": reason})
+    raise MakerCheckerError(reason)
+
+
 def approve(conn: sqlite3.Connection, item_id: str, officer_id: str) -> dict:
-    """Officer-only. Approve, then mock-submit."""
-    item = _move(conn, get(conn, item_id), APPROVED, decided_by=officer_id, decided_at=_now())
+    """Checker-only (maker-checker). Approve, then mock-submit."""
+    item = get(conn, item_id)
+    _check_checker(conn, item, officer_id)
+    item = _move(conn, item, APPROVED, decided_by=officer_id, decided_at=_now())
     audit.log(conn, item["session_id"], "officer", "approve", {"item_id": item_id, "officer_id": officer_id})
     item = _move(conn, item, SUBMITTED)
     audit.log(conn, item["session_id"], "system", "submit_mock", {"item_id": item_id})
@@ -138,10 +164,12 @@ def approve(conn: sqlite3.Connection, item_id: str, officer_id: str) -> dict:
 
 
 def reject(conn: sqlite3.Connection, item_id: str, officer_id: str, reason: str) -> dict:
-    """Officer-only. After MAX_REVISIONS revisions, a further rejection escalates to NEEDS_OFFICER."""
+    """Checker-only. After MAX_REVISIONS revisions, a further rejection escalates to NEEDS_OFFICER."""
+    item = get(conn, item_id)
+    _check_checker(conn, item, officer_id)
     if not reason.strip():
         raise QueueError("a rejection needs a reason")
-    item = _move(conn, get(conn, item_id), REJECTED,
+    item = _move(conn, item, REJECTED,
                  reject_reason=reason, decided_by=officer_id, decided_at=_now())
     audit.log(conn, item["session_id"], "officer", "reject",
               {"item_id": item_id, "officer_id": officer_id, "reason": reason})
@@ -175,20 +203,27 @@ def validate_revision(item: dict, changes: dict, actor: str) -> dict:
 
 
 def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: str,
-           actor: str = "agent") -> dict:
+           actor: str = "agent", officer_id: str | None = None) -> dict:
     """REJECTED (or NEEDS_OFFICER, officer only) → REVISED → PENDING_APPROVAL.
 
     Validates fully before writing anything. The caller renders the new PDF only
-    after this succeeds (see agent.tools.revise_and_render).
+    after this succeeds (see agent.tools.revise_and_render). An officer revision
+    makes that officer the item's maker (prepared_by); an agent revision keeps it.
     """
     item = get(conn, item_id)
     payload = validate_revision(item, changes, actor)
+    prepared_by = item.get("prepared_by")
+    if actor == "officer":
+        if officers.get_officer(officer_id) is None:
+            raise QueueError(f"unknown officer {officer_id}")
+        prepared_by = officer_id
     conn.execute(
-        "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1 WHERE item_id = ?",
-        (json.dumps(payload, ensure_ascii=False), item_id),
+        "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1, prepared_by = ? "
+        "WHERE item_id = ?",
+        (json.dumps(payload, ensure_ascii=False), prepared_by, item_id),
     )
     conn.commit()
     item = _move(conn, get(conn, item_id), REVISED)
     audit.log(conn, item["session_id"], actor, "revise",
-              {"item_id": item_id, "changes": changes, "explanation": explanation})
+              {"item_id": item_id, "changes": changes, "explanation": explanation, "prepared_by": prepared_by})
     return _move(conn, item, PENDING_APPROVAL)

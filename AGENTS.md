@@ -29,7 +29,7 @@ Read next, in order:
 ## Non-negotiable rules
 
 1. **The LLM never decides eligibility.** Only `app/rules/engine.py` returns ELIGIBLE / NOT_ELIGIBLE / UNKNOWN. The LLM may interview, extract facts, explain, choose the next question, and draft text. If you find yourself asking the model "is this customer eligible", stop and call `check_eligibility` instead.
-2. **Nothing is submitted without officer approval.** Every action (form, service request) goes into the approval queue as `PENDING_APPROVAL`. Only `POST /queue/{id}/approve` moves it on. No code path may skip the gate.
+2. **Nothing is submitted without officer approval.** Every action (form, service request) goes into the approval queue as `PENDING_APPROVAL`. Only `POST /queue/{id}/approve` moves it on. No code path may skip the gate. Maker-checker: only a `checker` who did not prepare the item (`prepared_by`) may approve or reject it (`app/queue.py`, roles in `app/officers.py`).
 3. **Every eligibility decision cites its rule and source URL.** Rules without a `source_url` fail validation at startup.
 4. **Missing or conflicting data → UNKNOWN, never a guess.** The agent asks a question or marks the product "verify manually".
 5. **Synthetic data only.** No real names, Aadhaar, PAN or account numbers. Aadhaar and account numbers are always stored and displayed masked (`XXXX-XXXX-1234`).
@@ -57,8 +57,7 @@ LLM_MODEL=<model id>
 LLM_API_KEY=...
 SARVAM_API_KEY=...        # optional
 DB_PATH=app/data/bank.db
-YS_OFFICER_ID=officer-1   # optional (UI): officer id sent with approve / reject
-YS_OFFICER_NAME=Officer 1 # optional (UI): name shown in the header
+YS_OFFICER_ID=officer-1   # optional (UI): initial "Acting as" officer (officer-1 maker, manager-1 checker)
 YS_BRANCH=...             # optional (UI): branch shown in the header
 ```
 
@@ -87,6 +86,7 @@ app/
   sessions.py              session store, derived state, completion effects
   privacy.py               full-Aadhaar detection / redaction (every write path + audit log)
   audit.py                 audit log helper
+  officers.py              officer registry + roles (maker / checker) for maker-checker approval
   db.py                    SQLite schema + in-place column migrations
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs

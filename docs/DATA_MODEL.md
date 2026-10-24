@@ -70,6 +70,7 @@ CREATE TABLE queue_items (
   revision_count INTEGER DEFAULT 0,
   decided_by TEXT,
   decided_at TEXT,
+  prepared_by TEXT,                    -- the maker: the session's officer_id, or the officer who last revised it
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -78,7 +79,7 @@ CREATE TABLE audit_log (
   ts TEXT DEFAULT CURRENT_TIMESTAMP,
   session_id TEXT,
   actor TEXT NOT NULL,                 -- agent | officer | system
-  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | revise | escalate | submit_mock | completion_effect | error
+  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | approval_denied | revise | escalate | submit_mock | completion_effect | error
   payload_json TEXT
 );
 ```
@@ -93,6 +94,22 @@ REJECTED → NEEDS_OFFICER                  (rejected again when revision_count 
 NEEDS_OFFICER → REVISED → PENDING_APPROVAL (officer only, via POST /queue/{id}/revise)
 APPROVED → SUBMITTED                       (mock submission, only from APPROVED)
 ```
+
+`prepared_by` is added in place to an existing `bank.db` (`app/db.py` `_MIGRATIONS`); items from before
+the column have `NULL`, so any checker may decide them.
+
+### Officers and roles (maker-checker)
+
+`app/officers.py` holds the officer registry (synthetic):
+
+| officer_id | name | role |
+|---|---|---|
+| `officer-1` | Banking Correspondent | `maker`: starts sessions, prepares and revises items |
+| `manager-1` | Branch Manager | `checker`: approves or rejects |
+
+`queue.approve` / `queue.reject` refuse (`MakerCheckerError`, audited as `approval_denied`) an unknown
+officer, a `maker`, or the item's own `prepared_by`. Unknown officer ids are also refused when starting
+a session and when revising.
 
 ## 3. Demo personas (seed exactly these)
 
