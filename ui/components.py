@@ -13,7 +13,8 @@ Rules:
 from __future__ import annotations
 
 import html
-from collections.abc import Iterable, Mapping, Sequence
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -100,9 +101,12 @@ header[data-testid="stHeader"] {{ background: transparent; }}
 @media (max-width: 1024px) {{
   [data-testid="stMainBlockContainer"], .block-container {{ padding-left: 1rem; padding-right: 1rem; }}
 }}
-/* keyboard focus is always visible */
-a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
-  outline: 3px solid var(--ys-primary); outline-offset: 2px;
+/* keyboard focus is always visible (#24): buttons, links, tabs, expanders, and the label of Streamlit's
+   visually hidden radio / checkbox / toggle inputs, which would otherwise show no ring at all */
+a:focus-visible, button:focus-visible, [role="tab"]:focus-visible, summary:focus-visible,
+label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:focus-visible) {{
+  /* !important: Streamlit's own button styles set outline: none, which leaves only a faint grey shadow */
+  outline: 3px solid var(--ys-primary) !important; outline-offset: 2px !important;
 }}
 
 /* header */
@@ -141,12 +145,15 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 /* KPI grid: CSS grid, so tiles reflow on narrow screens without Streamlit columns */
 .ys-kpis {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem;
   margin: .25rem 0 1rem; }}
-.ys-kpi {{ background: var(--ys-surface); border: 1px solid var(--ys-border); border-left: 4px solid var(--ys-primary);
-  border-radius: 6px; padding: .7rem .9rem; }}
-.ys-kpi-value {{ font-size: 1.75rem; font-weight: 700; line-height: 1.15; color: var(--ys-ink);
-  font-variant-numeric: tabular-nums; }}
-.ys-kpi-label {{ color: var(--ys-muted); font-size: .85rem; margin-top: .15rem; }}
-.ys-kpi-attention {{ border-left-color: {TONE["attention"].fg}; }}
+.ys-kpi {{ background: var(--ys-surface); border: 1px solid var(--ys-border); border-radius: 10px;
+  padding: .7rem 1rem .75rem; box-shadow: 0 1px 2px {_rgba(COLORS["ink"], .05)}; }}
+.ys-kpi-label {{ display: flex; gap: .35rem; align-items: center; color: var(--ys-muted); font-size: .82rem;
+  font-weight: 500; }}
+.ys-kpi-value {{ font-size: 1.85rem; font-weight: 650; line-height: 1.15; color: var(--ys-ink); margin-top: .15rem;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums; }}
+.ys-kpi-attention {{ box-shadow: inset 0 3px 0 {TONE["attention"].fg}; }}
+.ys-kpi-flag {{ display: inline-flex; align-items: center; justify-content: center; width: 1rem; height: 1rem;
+  border-radius: 50%; background: {TONE["attention"].fg}; color: #fff; font-size: .7rem; font-weight: 700; }}
 
 /* section header */
 .ys-section-caption {{ color: var(--ys-muted); font-size: .9rem; margin: -.6rem 0 .6rem; }}
@@ -225,6 +232,7 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 /* agent pipeline (#18): CGI's four stages, with the tools the agent used in each */
 .ys-pipe {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .6rem;
   margin: .4rem 0 1rem; }}
+@media (max-width: 1100px) {{ .ys-pipe {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
 .ys-stage {{ background: var(--ys-surface); border: 1px solid var(--ys-border); border-radius: 8px;
   padding: .55rem .75rem; }}
 .ys-stage-current {{ border: 2px solid var(--ys-primary); background: {TONE["info"].bg}; }}
@@ -263,7 +271,17 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-diff-before {{ color: {TONE["attention"].fg}; text-decoration: line-through; }}
 .ys-diff-after {{ color: {TONE["positive"].fg}; font-weight: 600; }}
 
-/* branch scan call list (#38) */
+/* approval chain on a queue card (#24): prepared -> checked -> submitted, icon + text */
+.ys-chain {{ display: flex; flex-wrap: wrap; gap: .25rem .35rem; align-items: center; margin: .3rem 0 .45rem;
+  font-size: .8rem; }}
+.ys-chain-step {{ display: inline-flex; gap: .3rem; align-items: center; padding: .08rem .55rem; border-radius: 999px;
+  border: 1px solid currentColor; font-weight: 600; white-space: nowrap; }}
+.ys-chain-next {{ color: var(--ys-muted); background: var(--ys-surface); border-style: dashed; font-weight: 500; }}
+.ys-chain-sep {{ color: var(--ys-muted); }}
+.ys-card-title .ys-chain {{ margin: 0; }}
+
+/* branch scan call list (#38); rows kept dense so more customers fit above the fold (#24) */
+[class*="st-key-scan-C"] {{ padding: .55rem .85rem .85rem !important; gap: .4rem; }}
 .ys-call {{ display: grid; grid-template-columns: 2.4rem 1fr; gap: .2rem .75rem; align-items: start; }}
 .ys-rank {{ font-size: 1.35rem; font-weight: 700; color: var(--ys-muted); font-variant-numeric: tabular-nums;
   line-height: 1.6; text-align: right; }}
@@ -271,8 +289,8 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-call-name {{ font-weight: 700; font-size: 1.05rem; color: var(--ys-ink); }}
 .ys-call-meta {{ color: var(--ys-muted); font-size: .85rem; }}
 .ys-call-value {{ margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ys-ink); }}
-.ys-call-reason {{ color: var(--ys-ink); font-size: .9rem; margin-top: .3rem; }}
-.ys-opps {{ display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .3rem; }}
+.ys-call-reason {{ color: var(--ys-muted); font-size: .85rem; margin-top: .2rem; }}
+.ys-opps {{ display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .2rem; }}
 .ys-opp {{ display: inline-flex; gap: .25rem; align-items: center; font-size: .78rem; font-weight: 600;
   padding: .05rem .45rem; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }}
 
@@ -379,7 +397,7 @@ def card_title(name: str, meta: str = "", badge_html: str = "", detail: str = ""
     line up across a row whatever the name length.
     `note` (e.g. "Changed from …") is part of the same element, so a card has the same number of
     elements whether or not it shows one: Streamlit keeps widgets below it (open expanders) as they are.
-    `badge_html` must come from status_badge / queue_badge; everything else is escaped here.
+    `badge_html` must come from status_badge / queue_badge / approval_chain_html; everything else is escaped here.
     """
     name_html = (f'<span class="ys-card-name">{_e(name)}'
                  + (f'<span class="ys-card-id">{_e(meta)}</span>' if meta else "") + "</span>")
@@ -458,16 +476,79 @@ def kpi_tiles(tiles: Iterable[tuple[str, Any] | tuple[str, Any, bool]]) -> None:
         label, value = t[0], t[1]
         attention = bool(t[2]) if len(t) > 2 else False
         cls = "ys-kpi ys-kpi-attention" if attention else "ys-kpi"
-        cells.append(f'<div class="{cls}"><div class="ys-kpi-value">{_e(value)}</div>'
-                     f'<div class="ys-kpi-label">{_e(label)}</div></div>')
+        # needs attention: an icon + its accessible name as well as colour (status is never colour alone)
+        flag = ('<span class="ys-kpi-flag" role="img" aria-label="Needs attention" title="Needs attention">!</span>'
+                if attention else "")
+        cells.append(f'<div class="{cls}"><div class="ys-kpi-label">{flag}{_e(label)}</div>'
+                     f'<div class="ys-kpi-value">{_e(value)}</div></div>')
     _html('<div class="ys-kpis">' + "".join(cells) + "</div>")
 
 
+_ACRONYMS = {"id": "ID", "llm": "LLM", "pdf": "PDF", "ekyc": "eKYC", "dbt": "DBT", "ssy": "SSY", "dob": "date of birth"}
+
+
+def field_label(field: Any) -> str:
+    """'nominee_name' -> 'Nominee name', 'customer_id' -> 'Customer ID', 'girl_child_dob' -> 'Girl child date of
+    birth'."""
+    words = [_ACRONYMS.get(w.lower(), w) for w in str(field).replace("_", " ").split()]
+    if not words:
+        return ""
+    first = words[0]
+    return " ".join([first if first.isupper() or first[:1].islower() and first[1:2].isupper()
+                     else first[:1].upper() + first[1:], *words[1:]])
+
+
+def readable(value: Any, limit: int | None = None) -> str:
+    """Any API value as one line of plain text, never JSON (#24): booleans as yes/no, lists comma-joined,
+    mappings as 'Key: value · Key: value' (nested ones in brackets). Pure."""
+    if isinstance(value, bool):
+        s = "yes" if value else "no"
+    elif value is None or value == "":
+        s = "—"
+    elif isinstance(value, Mapping):
+        s = " · ".join(f"{field_label(k)}: " + (f"({readable(v)})" if isinstance(v, Mapping) and v else readable(v))
+                       for k, v in value.items()) or "—"
+    elif isinstance(value, list | tuple | set):
+        s = ", ".join(readable(v) for v in value) or "—"
+    else:
+        s = str(value)
+    return s if limit is None or len(s) <= limit else s[: limit - 1] + "…"
+
+
 def key_values(data: Mapping[str, Any], hide: Sequence[str] = ()) -> None:
-    """A readable field list instead of raw JSON (payloads, profiles)."""
-    rows = "".join(f"<dt>{_e(k.replace('_', ' ').capitalize())}</dt><dd>{_e('—' if v in (None, '') else v)}</dd>"
-                   for k, v in data.items() if k not in hide)
+    """A readable field list instead of raw JSON (payloads, profiles, audit records)."""
+    rows = "".join(f"<dt>{_e(field_label(k))}</dt><dd>{_e(readable(v))}</dd>" for k, v in data.items() if k not in hide)
     _html(f'<dl class="ys-kv">{rows}</dl>')
+
+
+def api_error_text(status: int, body: str) -> str:
+    """What an API error means, in a sentence: the `detail` FastAPI sends, never the raw response (#24). Pure."""
+    try:
+        detail = json.loads(body).get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    if isinstance(detail, list):  # request validation: [{"loc": [..., "field"], "msg": "..."}]
+        detail = "; ".join(f"{field_label((d.get('loc') or ['?'])[-1])}: {str(d.get('msg', 'invalid')).lower()}"
+                           for d in detail if isinstance(d, Mapping))
+    if isinstance(detail, str) and detail.strip():
+        detail = detail.strip()
+        return detail[0].upper() + detail[1:] + ("" if detail.endswith((".", "!", "?")) else ".")
+    if status >= 500:
+        return f"The API hit an unexpected error ({status}). Check the API log, then try again."
+    return f"The API refused this request ({status})."
+
+
+def event_datetime(ts: str | None) -> str:
+    """'24 Oct, 16:48' in local time, for tables (ISO timestamps are UTC)."""
+    from datetime import UTC, datetime
+
+    if not ts:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts
+    return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone().strftime("%d %b, %H:%M")
 
 
 # --- officer console (issue #17) --------------------------------------------------------
@@ -594,6 +675,18 @@ def _queued_item(items: Sequence[Mapping[str, Any]], step: Mapping[str, Any]) ->
         if step.get("type") == "SERVICE_REQUEST" and i.get("action_id") == step.get("action_id"):
             return i
     return None
+
+
+def prep_fields(state: Mapping[str, Any]) -> dict[str, list[str]]:
+    """field -> products that still need it, over the plan steps that can be prepared now, for the "Prepare all
+    steps" form (#24: plain inputs, no JSON). A detail several forms share (the nominee) is asked once. Pure."""
+    needed: dict[str, list[str]] = {}
+    for stp in (state.get("plan") or {}).get("steps") or []:
+        if "after" in stp:
+            continue  # blocked: queued later, once its prerequisites are approved
+        for f in stp.get("missing_mandatory") or []:
+            needed.setdefault(f, []).append(stp.get("product_id") or stp.get("action_id"))
+    return needed
 
 
 def plan_steps(state: Mapping[str, Any], action_labels: Mapping[str, str]) -> list[Step]:
@@ -723,12 +816,20 @@ def activity_feed(events: Sequence[Mapping[str, Any]], limit: int | None = 10) -
             if e.get("kind") == "tool":
                 st.caption(f"{_who_label(e.get('actor'))} called `{e.get('tool')}` in the {e.get('stage')} stage")
                 st.markdown("**What went in**")
-                st.json(detail.get("args") or {}, expanded=2)
+                _drawer_values(detail.get("args"))
                 if "result" in detail:
                     st.markdown("**What came out**")
-                    st.json(detail["result"], expanded=1)
+                    _drawer_values(detail["result"])
             elif detail:
-                st.json(detail, expanded=1)
+                _drawer_values(detail)
+
+
+def _drawer_values(value: Any) -> None:
+    """A "why" drawer's inputs or outputs as a field list (or one line), not raw JSON (#24)."""
+    if isinstance(value, Mapping) and value:
+        key_values(value)
+    else:
+        st.markdown(_md(readable(value)))
 
 
 def _who_label(actor: Any) -> str:
@@ -748,6 +849,35 @@ def queue_group_header(name: str, meta: str, counts: Mapping[str, int]) -> None:
     """One customer's group in the approval queue: name, id and status counts."""
     _html(f'<div class="ys-group" role="heading" aria-level="3"><span class="ys-group-name">{_e(name)}</span>'
           f'<span class="ys-group-meta">{_e(meta)}</span>{count_badges(counts)}</div>')
+
+
+def approval_chain_html(item: Mapping[str, Any], officer_name: Callable[[Any], str],
+                        checker: str = "Branch Manager") -> str:
+    """Prepared ✓ › Branch Manager … › Submitted: who has done what on this item, and who it waits on (#24).
+    Each step is icon + text, never colour alone. HTML."""
+    status = item.get("status")
+    decided = status in ("APPROVED", "SUBMITTED")
+    if decided:
+        check = ("positive", "✓", f"Approved by {officer_name(item.get('decided_by'))}")
+    elif status in ("REJECTED", "NEEDS_OFFICER"):
+        check = ("attention", "✕", f"Sent back by {officer_name(item.get('decided_by'))}" if item.get("decided_by")
+                 else "Sent back")
+    else:
+        rev = int(item.get("revision_count") or 0)
+        check = ("info", "…", f"Waiting on {checker}" + (f" · revision {rev}" if rev else ""))
+    steps = [("positive", "✓", f"Prepared by {officer_name(item.get('prepared_by'))}"), check,
+             ("positive", "✓", "Submitted (mock)") if status == "SUBMITTED" else (None, "○", "Submit")]
+    cells = []
+    for tone, icon, text in steps:
+        if tone is None:
+            cells.append(f'<span class="ys-chain-step ys-chain-next" role="listitem">'
+                         f'<span aria-hidden="true">{icon}</span>{_e(text)}</span>')
+        else:
+            t = TONE[tone]
+            cells.append(f'<span class="ys-chain-step" role="listitem" style="color:{t.fg};background:{t.bg}">'
+                         f'<span aria-hidden="true">{icon}</span>{_e(text)}</span>')
+    sep = '<span class="ys-chain-sep" aria-hidden="true">›</span>'
+    return f'<div class="ys-chain" role="list" aria-label="Approval chain">{sep.join(cells)}</div>'
 
 
 def rejection_note(reason: str, by: str) -> None:
