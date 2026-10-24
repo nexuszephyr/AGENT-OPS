@@ -66,7 +66,7 @@ Product status:
   "unknown_fields": [],
   "blocked_by": [],
   "required_docs": ["AADHAAR", "NOMINEE", "AUTODEBIT_CONSENT", "MOBILE"],
-  "source_url": "https://jansuraksha.gov.in",
+  "source_url": "https://utilities.cept.gov.in/dop/pdfbind.ashx?id=7217",
   "last_verified": "2026-10-24",
   "value_inr": 12000,
   "value_basis": "minimum guaranteed pension per year (₹1,000/month)"
@@ -86,7 +86,7 @@ Product status:
 - `value_inr` is missing, or is not an int ≥ 0 or `null` (a bool, float, string or negative number is rejected)
 - `value_basis` is missing or empty
 
-## 6. `products.json` (initial version: verify the ⚠ values in REFERENCE.md before the demo)
+## 6. `products.json` (verified 2026-10-24 against the sources in REFERENCE.md)
 
 ```json
 {
@@ -120,12 +120,12 @@ Product status:
         {"id": "R-PMJDY-NO-ACCT", "field": "has_savings_account", "op": "is_false",
          "text": "Customer must not already hold a savings account"},
         {"id": "R-PMJDY-AGE-MIN", "field": "age", "op": ">=", "value": 10,
-         "text": "Age must be 10 or above"}
+         "text": "Age must be 10 or above (minimum for opening through a Banking Correspondent with eKYC)"}
       ]},
       "prerequisites": [],
       "required_docs": ["AADHAAR", "PHOTO"],
-      "source_url": "https://pmjdy.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://sbi.bank.in/web/faq-s/faq-pradhan-mantri-jan-dhan-yojana-pmjdy",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "PMJJBY",
@@ -142,8 +142,8 @@ Product status:
         {"field": "has_savings_account", "op": "is_true", "action": "OPEN_SAVINGS_ACCOUNT"}
       ],
       "required_docs": ["AADHAAR", "NOMINEE", "AUTODEBIT_CONSENT"],
-      "source_url": "https://jansuraksha.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://bankofmaharashtra.bank.in/pm-jeevan-jyoti-bima-yojana",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "PMSBY",
@@ -160,8 +160,8 @@ Product status:
         {"field": "has_savings_account", "op": "is_true", "action": "OPEN_SAVINGS_ACCOUNT"}
       ],
       "required_docs": ["AADHAAR", "NOMINEE", "AUTODEBIT_CONSENT"],
-      "source_url": "https://jansuraksha.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://bankofmaharashtra.bank.in/pm-suraksha-bima-yojana",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "APY",
@@ -180,8 +180,8 @@ Product status:
         {"field": "has_savings_account", "op": "is_true", "action": "OPEN_SAVINGS_ACCOUNT"}
       ],
       "required_docs": ["AADHAAR", "NOMINEE", "AUTODEBIT_CONSENT", "MOBILE"],
-      "source_url": "https://jansuraksha.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://utilities.cept.gov.in/dop/pdfbind.ashx?id=7217",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "SSY",
@@ -198,8 +198,8 @@ Product status:
       ]},
       "prerequisites": [],
       "required_docs": ["GIRL_BIRTH_CERT", "AADHAAR", "PHOTO", "ADDRESS_PROOF"],
-      "source_url": "https://www.nsiindia.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://IndiaPost.gov.in/VAS/DOP_PDFFiles/Savings%20Bank/Sukanya%20Samriddhi%20Account%20Scheme%202019%20English.pdf",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "PMKISAN_DBT",
@@ -225,14 +225,14 @@ Product status:
         {"field": "ekyc_done", "op": "is_true", "action": "EKYC_REQUEST"}
       ],
       "required_docs": ["AADHAAR", "RTC", "PASSBOOK"],
-      "source_url": "https://pmkisan.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://fw.pmkisan.gov.in/Documents/FAQPMKISAN.pdf",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "PMFBY",
       "name": "PM Fasal Bima Yojana",
       "category": "insurance",
-      "benefit": "Crop insurance against natural risks (farmer premium 2% kharif / 1.5% rabi)",
+      "benefit": "Crop insurance against natural risks (farmer premium 2% kharif / 1.5% rabi / 5% commercial)",
       "value_inr": null,
       "value_basis": "depends on sum insured",
       "rules": {"all": [
@@ -247,8 +247,8 @@ Product status:
         {"field": "has_savings_account", "op": "is_true", "action": "OPEN_SAVINGS_ACCOUNT"}
       ],
       "required_docs": ["AADHAAR", "RTC", "SOWING_DECL", "PASSBOOK"],
-      "source_url": "https://pmfby.gov.in",
-      "last_verified": "TODO"
+      "source_url": "https://auccb.bank.in/pmfby/",
+      "last_verified": "2026-10-24"
     }
   ]
 }
