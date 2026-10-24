@@ -87,6 +87,7 @@ app/
   audit.py                 audit log helper
   officers.py              officer registry + roles (maker / checker) for maker-checker approval
   scan.py                  branch-wide proactive scan: ranked call list (pure, recommend-only)
+  dashboard.py             /dashboard numbers: funnel, by-product, customer rows, labels (pure, read-only)
   timeline.py              audit log → Ingest/Decide/Act/Report timeline for the UI (pure, read-only)
   db.py                    SQLite schema + in-place column migrations; one connection, serialized per statement
   config.py                env settings and stop limits (questions, tool calls, revisions)
@@ -109,6 +110,7 @@ tests/
   test_maker_checker.py    maker-checker: the preparer can't approve, roles, prepared_by, 403s
   test_prompt_hardening.py fake-LLM regressions from the live run (#12): plan fields, siblings, retry, officer-only facts
   test_value.py            ₹ value: catalogue validation, dashboard sums, format_inr
+  test_dashboard.py        dashboard: funnel / by-product / avg time, read-only GETs, /audit filters, privacy
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks

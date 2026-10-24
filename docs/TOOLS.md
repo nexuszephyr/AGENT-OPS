@@ -161,8 +161,9 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | POST | `/queue/{item_id}/revise` | `{officer_id, changes, explanation?}` | officer edits a `REJECTED` or `NEEDS_OFFICER` item → back to `PENDING_APPROVAL` (still needs an explicit approve). The revising officer becomes the item's `prepared_by` (whoever last changed the content is its maker), so a different checker must approve it. Unknown `officer_id` → 400. Agent revisions keep the session officer |
 | GET | `/queue/{item_id}/history` | | `ItemHistory`: the item's audit events and what changed since its latest rejection (read-only) |
 | GET | `/queue/{item_id}/pdf` | | PDF file |
-| GET | `/dashboard` | | `DashboardStats` |
-| GET | `/audit` | `?session_id=` | audit rows |
+| GET | `/dashboard` | | `DashboardStats`. **Read-only:** writes nothing, not even an audit row |
+| GET | `/audit` | `?session_id=&actor=&event=&q=&limit=200` | audit rows, newest first. **Read-only.** Filters are ANDed: `actor` exact; `event` exact, may repeat (`?event=approve&event=approval_denied` = either); `q` = case-insensitive substring of the event name or the (already redacted) payload, matched literally (`%` and `_` are not wildcards; values only go in as SQL placeholders) |
+| GET | `/audit/facets` | | `{actors: [...], events: [...], sessions: [...], total: n}`: distinct values for the dashboard's audit filters, plus the row count. **Read-only** |
 
 Errors: `MakerCheckerError` → **403**; every other queue/session error → 400; a missing required field → 422.
 
@@ -241,9 +242,29 @@ A tool call and its result are one event (`tone: "running"` until the result lan
   "value_inr_unlocked": 412000, "value_inr_eligible": 1036000,
   "blocked_by_action": {"AADHAAR_SEEDING_REQUEST": 1, "OPEN_SAVINGS_ACCOUNT": 1},
   "not_eligible_reasons": {"R-APY-AGE-MAX": 3, "R-APY-NOT-ITP": 1},
-  "top_missing_docs": {"NOMINEE": 5, "RTC": 2}
+  "top_missing_docs": {"NOMINEE": 5, "RTC": 2},
+  "avg_minutes_to_approval": 0.2,
+  "funnel": [{"stage": "screened", "count": 2}, {"stage": "eligible", "count": 8, "value_inr": 818000},
+             {"stage": "queued", "count": 7}, {"stage": "approved", "count": 7, "value_inr": 812000}],
+  "by_product": {"APY": {"name": "Atal Pension Yojana",
+                         "statuses": {"ELIGIBLE": 0, "ELIGIBLE_BLOCKED": 0, "NOT_ELIGIBLE": 1, "UNKNOWN": 0,
+                                      "ALREADY_ENROLLED": 1, "VERIFY_MANUALLY": 0}}, "...": {}},
+  "customer_results": [{"customer_id": "C002", "customer_name": "Priya Nair", "session_id": "S-1A2B3C",
+                        "product_id": "APY", "status": "NOT_ELIGIBLE",
+                        "failed_rules": ["R-APY-AGE-MAX", "R-APY-NOT-ITP"], "blocked_by": [], "missing_docs": [],
+                        "queue_status": null, "value_inr": 12000}],
+  "rule_labels": {"R-APY-NOT-ITP": "Income-tax payers cannot join APY (from 1 Oct 2022)"},
+  "action_labels": {"AADHAAR_SEEDING_REQUEST": "Seed account with Aadhaar for DBT"},
+  "doc_labels": {"NOMINEE": "Nominee details"}
 }
 ```
+
+Keys added in #21. Every existing key above is unchanged. The numbers come from `app/dashboard.py` (pure; `main.dashboard()` only gathers rows):
+- **`avg_minutes_to_approval`:** mean minutes from `created_at` to `decided_at` over `APPROVED` / `SUBMITTED` items in the latest sessions; `null` when there are none (the UI shows "—", never 0).
+- **`funnel`:** counts **customer-product pairs** in each customer's latest session. `screened` = customers. `eligible` = pairs that are `ELIGIBLE` / `ELIGIBLE_BLOCKED` **or** have an enrollment form in that session: an approved form makes the product `ALREADY_ENROLLED`, and the funnel must not shrink because the enrollment succeeded. `queued` = pairs with an `ENROLLMENT_FORM` in any status. `approved` = pairs whose form is `APPROVED` / `SUBMITTED`. So eligible ≥ queued ≥ approved. Service requests aren't counted. `value_inr` on `eligible` / `approved` follows #36: indicative, nulls skipped.
+- **`by_product`:** all 7 products, each with every status zero-filled, so a chart always has 7 bars.
+- **`customer_results`:** one row per (customer, product) for the latest sessions. `missing_docs` is filled for eligible / blocked products only. `queue_status` is that session's enrollment form for the product, or `null`. Names and ids only: no Aadhaar or account numbers.
+- **`rule_labels` / `action_labels` / `doc_labels`:** readable text for every rule, action and document id that appears above.
 
 ₹ values (#36) are **indicative cover / annual benefit** from `products.json` (`value_inr`), never money paid out. Products with `value_inr: null` (no single number: PMJDY, SSY, PMFBY) are skipped, never counted as ₹0.
 - **`value_inr_unlocked`** = Σ `value_inr` over `ENROLLMENT_FORM` items that are `APPROVED` or `SUBMITTED` (so a checker approved them). Service requests carry no value, and each product counts once per customer.
