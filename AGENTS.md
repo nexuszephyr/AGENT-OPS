@@ -45,7 +45,7 @@ Read next, in order:
 | UI | Streamlit (officer console, approval queue, dashboard) |
 | DB | SQLite via `sqlite3` (no ORM needed) |
 | LLM | Provider-agnostic wrapper in `app/agent/llm.py`; set via env vars |
-| PDFs | reportlab |
+| PDFs | reportlab (generate); pypdfium2 (UI preview of page 1) |
 | Tests | pytest |
 
 Environment variables (put them in `.env`, never commit them):
@@ -104,6 +104,7 @@ tests/
   test_ui_console.py       officer console: plan stepper follows the real queue, new components escape text
   test_timeline.py         session timeline: stages, folded tool calls, guardrail marks, live "running", redaction
   test_db_concurrency.py   the shared connection under concurrent agent writes + timeline polls
+  test_queue_history.py    item history + revision diff since the latest rejection (GET /queue/{id}/history)
   test_scan.py             branch scan: ranking, urgency, totals, recommend-only (no writes), masking
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules

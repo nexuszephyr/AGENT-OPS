@@ -180,3 +180,47 @@ def test_pipeline_escapes_text(monkeypatch):
     evil = "<script>alert(1)</script>"
     ui.pipeline([{"id": evil, "label": evil, "name": evil, "status": evil, "tools": {evil: 2}}], {evil: evil}, evil)
     assert "<script>" not in out[0]
+
+
+# --- approval queue (issue #19) ----------------------------------------------------------------
+
+def test_revision_diff_shows_before_and_after_and_escapes(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    ui.revision_diff([{"field": "nominee_name", "before": "Anjeli", "after": "Anjali"},
+                      {"field": "<b>x</b>", "before": None, "after": "<script>alert(1)</script>"}])
+    html = out[0]
+    assert "What changed since the rejection" in html and "At rejection" in html and "Now" in html
+    assert 'class="ys-diff-before" aria-label="was">Anjeli' in html and 'class="ys-diff-after">Anjali' in html
+    assert "Nominee name" in html and "—" in html            # a missing old value reads as a dash
+    assert "<script>" not in html and "<b>x" not in html
+
+
+def test_rejection_note_and_group_header_escape(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    evil = "<script>alert(1)</script>"
+    ui.rejection_note(evil, evil)
+    ui.queue_group_header(evil, evil, {"PENDING_APPROVAL": 2})
+    assert "<script>" not in "".join(out)
+    assert "Pending approval" in out[1] and '<span class="ys-count">2</span>' in out[1]
+
+
+def test_count_badges_put_escalations_first_and_skip_zeros():
+    html = ui.count_badges({"PENDING_APPROVAL": 3, "NEEDS_OFFICER": 1, "REJECTED": 0})
+    assert html.index("Needs officer") < html.index("Pending approval") and "Rejected" not in html
+
+
+def test_pdf_preview_renders_the_real_form(tmp_path):
+    from app.forms import fill
+
+    path = fill.render_pdf("Q-TEST01", "PMJJBY enrollment form",
+                           {"name": "Priya Nair", "aadhaar_masked": "XXXX-XXXX-5520"}, out_dir=tmp_path)
+    png, pages = ui.pdf_first_page_png(Path(path).read_bytes(), width_px=300)
+    assert png[:8] == b"\x89PNG\r\n\x1a\n" and pages == 1
+    import io
+
+    from PIL import Image
+
+    w, h = Image.open(io.BytesIO(png)).size
+    assert w == 300 and 1.35 < h / w < 1.48   # an A4 page

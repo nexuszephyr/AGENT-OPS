@@ -54,6 +54,9 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `customer_bubble(lang, text)` | Text the agent wrote for the customer, set apart from what it tells the officer |
 | `plan_steps(state, action_labels)` + `stepper(steps)` | Numbered plan: approved steps ticked first, then each remaining step with its queue state |
 | `pipeline(stages, notes, active_tool)` | CGI's Ingest → Decide → Act → Report from `GET /sessions/{id}/timeline`, with the tools used in each stage; mid-turn the latest tool is highlighted (#18) |
+| `queue_group_header(name, meta, counts)` + `count_badges(counts)` | One customer's group in the approval queue, with status counts; escalations sort first (#19) |
+| `rejection_note(reason, by)` + `revision_diff(rows)` | Why an item came back and what changed since: field, value at the rejection (struck through), value now. Rows come from `GET /queue/{id}/history` |
+| `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "View page" popover; works offline and in any browser |
 | `activity_feed(events)` + `event_label(event)` | Newest-first agent activity; each event opens a "why" drawer with what went in and what came out. Guardrail refusals show a shield and "Guardrail:" |
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
@@ -79,6 +82,14 @@ Status changes are announced three ways: the card pulses twice (skipped with red
 | Mid-turn: stage and tools, live | After the turn: the "why" drawer of a guardrail refusal |
 |---|---|
 | ![pipeline](screenshots/pipeline-live-1366x768.png) | ![why](screenshots/activity-why-1366x768.png) |
+
+## Approval queue (#19)
+
+Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per customer, revised items with a diff on top. Each card shows the real PDF page as a thumbnail ("View page" for a readable size). On the right: what it is, who prepared it, why it was rejected, and **what changed since the rejection**. Below that, **Approve** (primary), **Reject…** (a popover with a required reason) or **Edit and send back…** (also a popover). Every action ends with a confirmation toast. Reason and edit inputs are forms, so the first click always counts. At 1366×768 the revised item's diff and Approve are visible without scrolling (checked in Chromium: Approve ends at 701px).
+
+| Priya: the diff since the rejection, ready to approve | Escalated first | "View page" |
+|---|---|---|
+| ![diff](screenshots/queue-1366x768.png) | ![escalated](screenshots/queue-escalated-1366x768.png) | ![page](screenshots/queue-view-page-1366x768.png) |
 
 ## Screenshots
 

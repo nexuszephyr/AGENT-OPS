@@ -214,6 +214,7 @@ def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: s
         raise QueueError(f"unknown officer {officer_id}")
     item = get(conn, item_id)
     payload = validate_revision(item, changes, actor)
+    before = {k: item["payload"].get(k) for k in changes}  # for the revision diff (GET /queue/{id}/history)
     prepared_by = officer_id if actor == "officer" else item.get("prepared_by")
     conn.execute(
         "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1, prepared_by = ? "
@@ -223,5 +224,43 @@ def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: s
     conn.commit()
     item = _move(conn, get(conn, item_id), REVISED)
     audit.log(conn, item["session_id"], actor, "revise",
-              {"item_id": item_id, "changes": changes, "explanation": explanation, "prepared_by": prepared_by})
+              {"item_id": item_id, "changes": changes, "before": before, "explanation": explanation,
+               "prepared_by": prepared_by})
     return _move(conn, item, PENDING_APPROVAL)
+
+
+# Audit events that belong to one item's story (read by history()).
+_HISTORY_EVENTS = ("queue_create", "reject", "revise", "escalate", "approve", "approval_denied", "submit_mock")
+
+
+def history(conn: sqlite3.Connection, item_id: str) -> dict:
+    """An item's story from the audit log, plus what changed since its latest rejection (issue #19).
+
+    Read-only. `diff` lists each field revised after the latest `reject`: `before` is the value at the
+    rejection, `after` the value now. Fields revised back to their old value are left out.
+    """
+    item = get(conn, item_id)
+    rows = sorted((r for r in audit.fetch(conn, session_id=item["session_id"], limit=5000)
+                   if r["event"] in _HISTORY_EVENTS and (r.get("payload") or {}).get("item_id") == item_id),
+                  key=lambda r: r["id"])
+    events = [{"id": r["id"], "ts": r["ts"], "event": r["event"], "actor": r["actor"], **(r.get("payload") or {})}
+              for r in rows]
+    last_reject = max((i for i, e in enumerate(events) if e["event"] == "reject"), default=None)
+    diff: list[dict] = []
+    if last_reject is not None:
+        first_before: dict = {}
+        for e in events[last_reject + 1:]:
+            if e["event"] == "revise":
+                for k in e.get("changes") or {}:
+                    # older revise events (before #19) have no "before": the old value is then unknown (None)
+                    first_before.setdefault(k, (e.get("before") or {}).get(k))
+        diff = [{"field": k, "before": b, "after": item["payload"].get(k)}
+                for k, b in first_before.items() if b != item["payload"].get(k)]
+    rejection = events[last_reject] if last_reject is not None else None
+    return {
+        "item_id": item_id, "status": item["status"], "revision_count": item["revision_count"],
+        "rejection": ({"reason": rejection.get("reason"), "officer_id": rejection.get("officer_id"),
+                       "ts": rejection["ts"]} if rejection else None),
+        "diff": diff,
+        "events": events,
+    }

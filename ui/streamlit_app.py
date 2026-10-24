@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections import Counter
 from pathlib import Path
 
 import requests
@@ -28,11 +29,15 @@ from components import (
     empty_state,
     key_values,
     kpi_tiles,
+    pdf_first_page_png,
     pipeline,
     plan_steps,
     product_grid,
     question_prompt,
     queue_badge,
+    queue_group_header,
+    rejection_note,
+    revision_diff,
     section_header,
     setup_page,
     status_legend,
@@ -72,8 +77,9 @@ try:
     _CATALOG = json.loads((Path(__file__).resolve().parent.parent / "app" / "rules" / "products.json")
                           .read_text(encoding="utf-8"))
     ACTION_LABELS: dict[str, str] = {k: v["label"] for k, v in _CATALOG["actions"].items()}
+    PRODUCT_NAMES: dict[str, str] = {p["id"]: p["name"] for p in _CATALOG["products"]}
 except (OSError, ValueError, KeyError):
-    ACTION_LABELS = {}
+    ACTION_LABELS, PRODUCT_NAMES = {}, {}
 # Why there is no question to ask, in the officer's words (reasons come from app/planner/questions.py).
 NO_QUESTION_REASONS = {
     "no resolvable unknowns": "No more questions: every answer the rules need is in.",
@@ -431,76 +437,166 @@ with tab_console:
                             set_state(out["state"])
                             st.rerun()
 
-# --- Approval queue ----------------------------------------------------------------------
+# --- Approval queue (issue #19) -------------------------------------------------------------
+OPEN_ITEM = ("NEEDS_OFFICER", "REJECTED", "REVISED", "PENDING_APPROVAL")
+# Within a customer: escalated, then revised (has a diff to check), then rejected, then the rest.
+_ITEM_ORDER = {"NEEDS_OFFICER": 0, "REJECTED": 2, "REVISED": 1, "PENDING_APPROVAL": 3}
+
+
+def flash(msg: str, icon: str = ":material/check_circle:") -> None:
+    """A confirmation toast that survives the st.rerun() after an action."""
+    st.session_state.setdefault("flash", []).append((msg, icon))
+
+
+@st.cache_data(show_spinner=False, max_entries=200)
+def pdf_preview(pdf: bytes) -> tuple[bytes, int]:
+    return pdf_first_page_png(pdf)
+
+
+def item_title(i: dict) -> str:
+    return PRODUCT_NAMES.get(i["product_id"] or "") or ACTION_LABELS.get(i["action_id"] or "") \
+        or i["product_id"] or i["action_id"]
+
+
+def item_priority(i: dict, position: dict[str, int]) -> tuple:
+    """Escalated, revised (a diff to check), rejected, pending; ties keep queue order, which is plan order
+    (e.g. Aadhaar seeding before the PM-KISAN form it unlocks)."""
+    revised = i["status"] == "PENDING_APPROVAL" and i["revision_count"] > 0
+    return (0 if i["status"] == "NEEDS_OFFICER" else 1 if revised else _ITEM_ORDER.get(i["status"], 3) + 1,
+            position.get(i["item_id"], 0))
+
+
+def queue_item(i: dict) -> None:
+    """One item: PDF page preview on the left; what it is, why it came back, what changed and the actions on the
+    right, so the checker decides without scrolling (#19 'done when')."""
+    iid, title = i["item_id"], item_title(i)
+    hist = api("GET", f"/queue/{iid}/history") if (i["revision_count"] or i.get("reject_reason")) else None
+    key = f"ys-escalated-{iid}" if i["status"] == "NEEDS_OFFICER" else f"qi-{iid}"
+    with st.container(border=True, key=key):
+        left, right = st.columns([0.55, 2.8], gap="medium")
+        with left:
+            pdf = api("GET", f"/queue/{iid}/pdf") if i.get("pdf_path") else None
+            if isinstance(pdf, bytes | bytearray):
+                try:
+                    png, pages = pdf_preview(bytes(pdf))
+                    st.image(png, width=170)  # the real PDF page, as a thumbnail
+                    with st.popover("View page", icon=":material/zoom_in:", width=170):
+                        st.image(png, width=520, caption=f"{iid}: page 1 of {pages}")
+                except Exception:  # noqa: BLE001 - a preview problem must never hide the actions
+                    st.caption("Preview unavailable: download the PDF instead.")
+                st.download_button("PDF", pdf, file_name=f"{iid}.pdf", key=f"pdf_{iid}",
+                                   icon=":material/download:", width=170, help="Download the form as PDF")
+            else:
+                empty_state("No PDF", "This item has no form document.")
+        with right:
+            card_title(title, f"{iid} · revision {i['revision_count']} · prepared by "
+                              f"{officer_name(i.get('prepared_by'))}", queue_badge(i["status"]))
+            rej = (hist or {}).get("rejection")
+            if rej:
+                rejection_note(rej.get("reason") or "", officer_name(rej.get("officer_id")))
+            if (hist or {}).get("diff"):
+                revision_diff(hist["diff"], label)
+            elif i["status"] in ("REJECTED", "NEEDS_OFFICER"):
+                st.caption("Not changed yet. " + ("The agent tries a fix first; the Banking Correspondent can also "
+                                                    "edit it below." if health.get("llm_configured") else
+                                                    "The Banking Correspondent edits it below."))
+            queue_actions(i, title)
+            with st.expander("All form fields"):
+                key_values(i["payload"])
+
+
+def queue_actions(i: dict, title: str) -> None:
+    iid = i["item_id"]
+    if i["status"] == "PENDING_APPROVAL":
+        blocked = decide_block(i)
+        a1, a2, _ = st.columns([1.1, 1.1, 1.6])
+        if a1.button("Approve", key=f"ok_{iid}", type="primary", icon=":material/check:", width="stretch",
+                     disabled=bool(blocked), help=blocked):
+            out = api("POST", f"/queue/{iid}/approve", json={"officer_id": OFFICER})
+            if out:  # on a refusal, stay so the error stays visible
+                applied = ", ".join(f"{k} = {v}" for k, v in (out.get("applied") or {}).items() if k != "enrollments")
+                flash(f"Approved {title} ({iid}): submitted." + (f" Customer record updated: {applied}." if applied
+                                                                  else ""))
+                st.rerun()
+        with a2.popover("Reject…", icon=":material/close:", disabled=bool(blocked), help=blocked, width="stretch"):
+            # A form submits the typed reason with the click, so the first click always counts.
+            with st.form(key=f"rej_{iid}", border=False):
+                reason = st.text_input("Reason for rejecting", key=f"why_{iid}",
+                                       placeholder="e.g. Nominee name is Anjali, not Anjeli")
+                rejected = st.form_submit_button("Reject with this reason", type="primary")
+            if rejected:
+                if not reason.strip():
+                    st.warning("Type a reason first, so the agent knows what to fix.")
+                else:
+                    out = api("POST", f"/queue/{iid}/reject", json={"officer_id": OFFICER, "reason": reason})
+                    if out:
+                        now = (out.get("item") or {}).get("status")
+                        flash(f"Rejected {title} ({iid}). " + (
+                            "The agent revised it: it is back for approval." if now == "PENDING_APPROVAL" else
+                            "Escalated: an officer must fix it." if now == "NEEDS_OFFICER" else
+                            "It waits for the Banking Correspondent to fix it."), ":material/undo:")
+                        st.rerun()
+        if blocked:
+            st.caption(f"🔒 {blocked}")
+    elif i["status"] in ("REJECTED", "NEEDS_OFFICER"):
+        a1, _ = st.columns([1.4, 2.4])
+        with a1.popover("Edit and send back…", icon=":material/edit:", disabled=bool(MAKER_ONLY), help=MAKER_ONLY,
+                        width="stretch"):
+            editable = [k for k in i["payload"] if k not in LOCKED_FIELDS] or list(i["payload"])
+            field = st.selectbox("Field", editable, key=f"rf_{iid}", format_func=label)
+            # a form, like Reject: the typed value is submitted with the first click
+            with st.form(key=f"edit_{iid}_{field}", border=False):
+                value = st.text_input("New value", value=str(i["payload"].get(field) or ""), key=f"rv_{iid}_{field}")
+                st.caption("Saving makes you this item's preparer, so the Branch Manager must approve it.")
+                save = st.form_submit_button("Save and send back", type="primary")
+            if save:
+                out = api("POST", f"/queue/{iid}/revise",
+                          json={"officer_id": OFFICER, "changes": {field: value},
+                                "explanation": f"officer corrected {field}"})
+                if out:
+                    flash(f"Sent {title} ({iid}) back for approval "
+                          f"(revision {(out.get('item') or {}).get('revision_count', '')}).", ":material/send:")
+                    st.rerun()
+        if MAKER_ONLY:
+            st.caption(f"🔒 {MAKER_ONLY}")
+
+
 with tab_queue:
+    for msg, icon in st.session_state.pop("flash", []):
+        st.toast(msg, icon=icon)
     items = api("GET", "/queue") or []
-    pending = [i for i in items if i["status"] in ("PENDING_APPROVAL", "REJECTED", "NEEDS_OFFICER")]
-    section_header("Waiting for you", "Every form and service request needs your approval before it is submitted.")
-    if not pending:
+    open_items = [i for i in items if i["status"] in OPEN_ITEM]
+    # Compact on purpose: at 1366x768 the first item's diff and Approve must be visible without scrolling (#19).
+    section_header("Approval queue", f"{len(open_items)} open. The Branch Manager decides; nobody approves an item "
+                                     "they prepared (maker-checker).")
+    if not open_items:
         empty_state("Nothing waiting for approval",
                     "Prepared forms and service requests appear here. Start a session in the Officer console.")
-    for i in pending:
-        target = i["product_id"] or i["action_id"]
-        with st.container(border=True):
-            card_title(target, f"{i['item_id']} · {label(i['kind'])} · customer {i['customer_id']}"
-                               f" · revisions {i['revision_count']}", queue_badge(i["status"]),
-                       detail=f"Prepared by {officer_name(i.get('prepared_by'))}")
-            if i.get("reject_reason"):
-                st.caption(f"Last rejection: {i['reject_reason']}")
-            with st.expander("Form fields"):
-                key_values(i["payload"])
-            c1, c2, c3 = st.columns([1, 1, 3], vertical_alignment="bottom")
-            if i["pdf_path"]:
-                pdf = api("GET", f"/queue/{i['item_id']}/pdf")
-                if pdf:
-                    c1.download_button("Download PDF", pdf, file_name=f"{i['item_id']}.pdf",
-                                       key=f"pdf_{i['item_id']}", width="stretch")
-            if i["status"] == "PENDING_APPROVAL":
-                blocked = decide_block(i)
-                if blocked:
-                    st.caption(f"🔒 {blocked}")
-                if (c2.button("Approve", key=f"ok_{i['item_id']}", type="primary", width="stretch",
-                              disabled=bool(blocked), help=blocked)
-                        and api("POST", f"/queue/{i['item_id']}/approve", json={"officer_id": OFFICER})):
-                    st.rerun()  # on a refusal, stay so the error stays visible
-                # A form submits the typed reason with the click, so the first click always counts
-                # (a disabled button only enables after the text box blurs). The API also requires a reason.
-                with c3.form(key=f"rej_{i['item_id']}", border=False):
-                    reason = st.text_input("Reason for rejecting", key=f"why_{i['item_id']}",
-                                           placeholder="e.g. Nominee name is Anjali, not Anjeli")
-                    rejected = st.form_submit_button("Reject", disabled=bool(blocked), help=blocked)
-                if rejected:
-                    if not reason.strip():
-                        st.warning("Type a reason first, so the agent knows what to fix.")
-                    else:
-                        out = api("POST", f"/queue/{i['item_id']}/reject",
-                                  json={"officer_id": OFFICER, "reason": reason})
-                        if out:
-                            st.info(out["reply"]["to_officer"])
-                        st.rerun()
-            elif i["status"] in ("REJECTED", "NEEDS_OFFICER"):
-                # Officer fixes it directly (always available; the only path in rules-only mode)
-                with st.expander("Edit and send back for approval",
-                                 expanded=i["status"] == "NEEDS_OFFICER" or not health.get("llm_configured")):
-                    editable = [k for k in i["payload"] if k not in LOCKED_FIELDS] or list(i["payload"])
-                    field = st.selectbox("Field", editable, key=f"rf_{i['item_id']}", format_func=label)
-                    value = st.text_input("New value", value=str(i["payload"].get(field) or ""),
-                                          key=f"rv_{i['item_id']}_{field}")
-                    st.caption(f"🔒 {MAKER_ONLY}" if MAKER_ONLY else
-                               "Saving makes you this item's preparer, so the Branch Manager must approve it.")
-                    if st.button("Save and send back", key=f"rs_{i['item_id']}", type="primary",
-                                 disabled=bool(MAKER_ONLY), help=MAKER_ONLY):
-                        out = api("POST", f"/queue/{i['item_id']}/revise",
-                                  json={"officer_id": OFFICER, "changes": {field: value},
-                                        "explanation": f"officer corrected {field}"})
-                        if out:
-                            st.rerun()
+
+    escalated = [i for i in open_items if i["status"] == "NEEDS_OFFICER"]
+    if escalated:
+        st.markdown("**Needs an officer now**: these hit the revision limit.")
+        for i in escalated:
+            queue_item(i)
+
+    names = {c["customer_id"]: c for c in (api("GET", "/customers") or [])}
+    groups: dict[str, list[dict]] = {}
+    for i in open_items:
+        if i["status"] != "NEEDS_OFFICER":
+            groups.setdefault(i["customer_id"], []).append(i)
+    position = {i["item_id"]: n for n, i in enumerate(items)}  # GET /queue is in insertion (plan) order
+    for cid in sorted(groups, key=lambda c: (min(item_priority(i, position) for i in groups[c]), c)):
+        group = sorted(groups[cid], key=lambda i: item_priority(i, position))
+        c = names.get(cid, {})
+        queue_group_header(c.get("name", cid), f"{cid} · {len(group)} open",
+                           Counter(i["status"] for i in group))
+        for i in group:
+            queue_item(i)
 
     done = [i for i in items if i["status"] == "SUBMITTED"]
     if done:
         section_header("Approved and submitted", "Submission is mocked in this prototype.")
-        st.dataframe([{"Item": i["item_id"], "Customer": i["customer_id"], "Kind": label(i["kind"]),
-                       "Product / action": i["product_id"] or i["action_id"],
+        st.dataframe([{"Item": i["item_id"], "Customer": i["customer_id"], "What": item_title(i),
                        "Prepared by": officer_name(i.get("prepared_by")),
                        "Approved by": officer_name(i["decided_by"]), "Approved at": i["decided_at"]}
                       for i in done], width="stretch", hide_index=True)
