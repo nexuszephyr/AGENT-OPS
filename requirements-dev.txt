@@ -4,3 +4,4 @@ mypy>=1.10
 pytest-cov>=7.1.0
 pytest-randomly>=3.15
 pip-audit>=2.7
+playwright==1.63.0    # smoke.py browser checks + screenshots (#26); CI installs Chromium for it

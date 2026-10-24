@@ -100,7 +100,7 @@ Status changes are announced three ways: the card pulses twice (skipped with red
 
 Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per customer, revised items with a diff on top. Each card shows the real PDF page as a thumbnail ("Zoom" for a readable size). On the right: what it is, its approval chain (prepared by whom, waiting on whom: #24), why it was rejected, and **what changed since the rejection**. Below that, **Approve** (primary), **Reject…** (a popover with a required reason) or **Edit and send back…** (also a popover). Every action ends with a confirmation toast. Reason and edit inputs are forms, so the first click always counts. At 1366×768 the revised item's diff and Approve are visible without scrolling (checked in Chromium after #24: Approve still ends at 701px, because the chain replaced the badge instead of adding a line).
 
-| Priya: the diff since the rejection, ready to approve | Escalated first | "Zoom" |
+| The diff since the rejection, ready to approve | Escalated first | "Zoom" |
 |---|---|---|
 | ![diff](screenshots/queue-1366x768.png) | ![escalated](screenshots/queue-escalated-1366x768.png) | ![page](screenshots/queue-view-page-1366x768.png) |
 
@@ -129,9 +129,9 @@ The Report stage, fourth tab. It's **read-only**: one `GET /dashboard` and one `
 
 On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a session to see outcomes".
 
-| After the Ramesh and Priya flows (full page) | Clicked PMJJBY: panels and table filter |
+| After the smoke flows (full page) | Clicked PMJJBY: panels and table filter |
 |---|---|
-| ![full](screenshots/dashboard-full-1366.png) | ![filtered](screenshots/dashboard-filtered-1366.png) |
+| ![full](screenshots/dashboard-1366x768.png) | ![filtered](screenshots/dashboard-filtered-1366.png) |
 
 ## Polish and accessibility pass (#24)
 
@@ -148,8 +148,21 @@ On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a se
 
 ## Screenshots
 
+**CI regenerates them on every PR** (#26): the smoke job opens every tab in headless Chromium after the demo flows and uploads the **`ui-screenshots`** artifact (14 days, also on a failed run), with an `index.md` of the files and the browser checks. A tab that shows an exception, logs a browser console error or never finishes rendering fails CI.
+
+To refresh the committed ones, run the smoke test with an output dir, look at every PNG, then commit the PNGs (not `index.md`, which is the run's report and is git-ignored here):
+
+```bash
+SMOKE_SCREENSHOTS=docs/screenshots python scripts/smoke.py
+# no Playwright Chromium on this machine? use an installed browser instead of `playwright install`:
+SMOKE_SCREENSHOTS=docs/screenshots SMOKE_BROWSER_CHANNEL=msedge python scripts/smoke.py
+```
+
+`scripts/screenshots.py` writes, full page unless noted: `console-picker-`, `scan-`, `queue-`, `dashboard-1366x768.png`; `queue-view-page-1366x768.png` (the popover, viewport only); `dashboard-filtered-1366.png` (after a real click on the PMJJBY bar); `console-1366x768.png` (Ramesh picked in the picker); and `<tab>-tablet-820x1180.png` for all four tabs. The other images on this page (answered / approved console, live pipeline, "why" drawer, escalated queue, scan filters / started) are captured by hand.
+
 | | 1366×768 (projector) | 820px (tablet) |
 |---|---|---|
 | Officer console | ![console](screenshots/console-1366x768.png) | ![console](screenshots/console-tablet-820x1180.png) |
+| Branch scan | ![scan](screenshots/scan-1366x768.png) | ![scan](screenshots/scan-tablet-820x1180.png) |
 | Approval queue | ![queue](screenshots/queue-1366x768.png) | ![queue](screenshots/queue-tablet-820x1180.png) |
 | Branch dashboard | ![dashboard](screenshots/dashboard-1366x768.png) | ![dashboard](screenshots/dashboard-tablet-820x1180.png) |

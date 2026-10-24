@@ -48,6 +48,22 @@ Lead with the value tiles: "₹X lakh unlocked so far; ₹Y lakh still eligible 
 
 `python scripts/smoke.py` runs A1–A7, A9 and A10 automatically against a real API + UI (CI does this on every PR). A8 is manual.
 
+It then re-seeds and walks the same story **through the UI itself** (`scripts/ui_flows.py`, Streamlit AppTest, rules-only), one check per step. Every step also fails if the app raised an exception:
+
+| Step | What's asserted |
+|---|---|
+| UI 1 Start session (Ramesh, as the Banking Correspondent) | Products panel renders; PMFBY Unknown, PM-KISAN Eligible – blocked |
+| UI 2 Record answer (notified crop = Yes, notified area = Yes) | PMFBY becomes Eligible |
+| UI 3 Doesn't know (Arjun, income-tax status) | APY goes to Verify manually and no question is left (the app resolves the question with no answer) |
+| UI 4 Prepare all steps | 6 items pending approval; the plan starts with Aadhaar seeding |
+| UI 5 Maker can't approve | Approve is disabled for officer-1 on every item they prepared |
+| UI 6 Branch Manager approves seeding, eKYC and the PMJJBY form | All three submitted; PM-KISAN unblocks |
+| UI 7 Reject ("nominee name misspelt") → BC edits the nominee → Save and send back | Rejected, then pending again at revision 1; the revision diff renders |
+| UI 8 Run scan | The call list renders with a Start session per row |
+| UI 9 Dashboard | KPI tiles, funnel, Eligibility by product and Audit log render; the PMJJBY filter (the chart's selection state) narrows the table to PMJJBY; a document filter is kept, a rule filter with no bar is dropped; audit filters by session, actor, event and search each show filtered rows |
+
+With `SMOKE_SCREENSHOTS=<dir>` (always on in CI) it also opens every tab in headless Chromium, fails on a visible exception, a browser console error or a tab that never renders, clicks the PMJJBY bar for real, and saves the screenshots (docs/UI.md, "Screenshots").
+
 ## 3. Likely judge questions
 
 | Question | Answer |

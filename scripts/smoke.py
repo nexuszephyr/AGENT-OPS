@@ -3,8 +3,12 @@
     python scripts/smoke.py
 
 Boots the API and UI on free ports with a throwaway DB, walks the demo script
-(DEMO.md A1-A7, A9) over HTTP, checks the UI health endpoint, and fails on any
-traceback in the server logs. Logs are left in $SMOKE_LOG_DIR (default: ./smoke-logs).
+(DEMO.md A1-A10) over HTTP, re-seeds, then walks the UI itself with Streamlit AppTest
+(scripts/ui_flows.py: start, answer, prepare, approve, reject + revise, scan, dashboard),
+and fails on any app exception or traceback in the server logs. Logs are left in
+$SMOKE_LOG_DIR (default: ./smoke-logs). Prints the time per phase.
+
+    SMOKE_SCREENSHOTS=<dir> python scripts/smoke.py   # also: every tab in a real browser (scripts/screenshots.py)
 """
 from __future__ import annotations
 
@@ -20,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+import ui_flows  # noqa: E402 - scripts/ is on sys.path when this file runs
 
 from app.data.seed import BRANCH_CUSTOMERS  # noqa: E402
 
@@ -60,11 +66,42 @@ def wait_for(url: str, timeout: float = 60) -> None:
 class Smoke:
     def __init__(self) -> None:
         self.failures: list[str] = []
+        self.started = self.last = time.time()
+        self.phases: list[tuple[str, float]] = []
 
     def check(self, name: str, ok: bool, detail: object = "") -> None:
         print(f"{'PASS' if ok else 'FAIL'}  {name}" + ("" if ok else f"\n      {str(detail)[:400]}"))
         if not ok:
             self.failures.append(name)
+
+    def phase(self, name: str) -> None:
+        now = time.time()
+        self.phases.append((name, now - self.last))
+        print(f"phase {name}: {now - self.last:.1f}s")
+        self.last = now
+
+
+def screenshots(sm: Smoke, ui_url: str) -> None:
+    """Every tab in a real browser (#26). Off unless SMOKE_SCREENSHOTS names an output dir."""
+    out = os.getenv("SMOKE_SCREENSHOTS")
+    if not out:
+        print("SKIP  screenshots: set SMOKE_SCREENSHOTS=<dir> to check and capture every tab in a real browser")
+        return
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        print("SKIP  screenshots: Playwright isn't installed (pip install -r requirements-dev.txt)")
+        sm.check("Playwright is installed in CI", not os.getenv("CI"), "CI must run the browser checks")
+        return
+    from screenshots import TABS, capture
+
+    problems = capture(ui_url, Path(out))
+    for tab in TABS:
+        mine = [p for p in problems if p.startswith(tab)]
+        sm.check(f"browser: {tab} shows no exception and logs no console error", not mine, mine)
+    other = [p for p in problems if not p.startswith(tuple(TABS))]
+    sm.check("browser: screenshot run completed", not other, other)
+    print(f"      screenshots + index.md in {out}")
 
 
 def main() -> int:
@@ -88,6 +125,7 @@ def main() -> int:
     try:
         wait_for(f"{api}/health")
         wait_for(f"http://127.0.0.1:{ui_port}/_stcore/health")
+        sm.phase("boot (seed + API + UI)")
         sm.check("API /health responds, rules-only mode", http("GET", f"{api}/health")[1] == {
             "ok": True, "llm_configured": False, "provider": os.getenv("LLM_PROVIDER", "anthropic")})
         code, _ = http("GET", f"http://127.0.0.1:{ui_port}/_stcore/health")
@@ -217,6 +255,21 @@ def main() -> int:
         sm.check("A7 injection: no status change, rules-only reply",
                  out["reply"]["mode"] == "rules_only" and
                  {r["product_id"]: r["status"] for r in out["state"]["results"]}["APY"] == "UNKNOWN")
+        sm.phase("API flows A1-A10 + first UI checks")
+
+        # UI walkthrough (#26) on a fresh book: A1-A6 already approved Ramesh's seeding over HTTP.
+        subprocess.run([sys.executable, "-m", "app.data.seed", "--reset"], cwd=ROOT, env=env, check=True,
+                       stdout=subprocess.DEVNULL)
+        _, customers = http("GET", f"{api}/customers")
+        sm.check("re-seeded for the UI walkthrough", len(customers) == 6 + len(BRANCH_CUSTOMERS), len(customers))
+        http("POST", f"{api}/sessions", {"customer_id": "C002", "officer_id": "officer-1"})  # Priya's APY rules
+        try:  # a crash here is a failure, and the browser phase below still runs
+            ui_flows.run(sm, http, api)
+        except Exception as e:  # noqa: BLE001
+            sm.check("UI walkthrough completed without crashing", False, repr(e))
+        sm.phase("UI flows (AppTest)")
+        screenshots(sm, f"http://127.0.0.1:{ui_port}")
+        sm.phase("screenshots (Playwright)")
     except Exception as e:  # noqa: BLE001 - report any crash as a smoke failure
         sm.check("smoke run completed without crashing", False, repr(e))
     finally:
@@ -234,6 +287,9 @@ def main() -> int:
         text = (LOG_DIR / name).read_text(errors="ignore")
         sm.check(f"no tracebacks in {name}", "Traceback" not in text, text[-800:])
 
+    sm.phase("shutdown + log checks")
+    print("\nTimings: " + " · ".join(f"{n} {t:.1f}s" for n, t in sm.phases)
+          + f" · total {time.time() - sm.started:.1f}s")
     print(f"\n{'OK' if not sm.failures else 'FAILED'}: {len(sm.failures)} failure(s). Logs: {LOG_DIR}")
     return 1 if sm.failures else 0
 

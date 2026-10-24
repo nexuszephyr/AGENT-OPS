@@ -115,7 +115,9 @@ tests/
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks
-  smoke.py                 boots API + UI and walks DEMO.md A1–A7
+  smoke.py                 boots API + UI: DEMO.md A1–A10 over HTTP, the UI flows, optional browser screenshots
+  ui_flows.py              smoke's UI walkthrough (Streamlit AppTest): start → answer → prepare → approve → reject + revise → scan → dashboard
+  screenshots.py           smoke's browser phase (Playwright): every tab checked + screenshotted (SMOKE_SCREENSHOTS)
   live_llm_check.py        real-LLM scenario run → docs/LIVE_LLM_RUN.md (manual only, needs a key; never in CI)
 .github/workflows/ci.yml   CI; the required check is "CI passed"
 docs/
@@ -139,7 +141,7 @@ ruff check . && mypy app                 # lint + types
 pytest -p randomly --cov --cov-fail-under=80
 python scripts/check_guardrails.py       # the non-negotiable rules above, checked statically
 python scripts/check_docs_sync.py        # docs/ and code agree (products.json, tools, routes, prompt)
-python scripts/smoke.py                  # boots API + UI and walks DEMO.md A1–A7
+python scripts/smoke.py                  # boots API + UI: DEMO.md A1–A10, the UI flows (SMOKE_SCREENSHOTS=dir adds the browser)
 ```
 
 ## Coding conventions
