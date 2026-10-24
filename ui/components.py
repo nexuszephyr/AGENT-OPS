@@ -615,6 +615,7 @@ _TONE_ICON = {"running": ":material/progress_activity:", "guardrail": ":material
 _KIND_ICON = {"tool": ":material/build:", "message": ":material/chat:", "llm_reply": ":material/smart_toy:",
               "session_start": ":material/login:", "question_resolved": ":material/help:",
               "approve": ":material/task_alt:", "submit_mock": ":material/send:", "revise": ":material/edit:",
+              "queue_replace": ":material/edit:",
               "completion_effect": ":material/published_with_changes:"}
 _TONE_PREFIX = {"running": "Running: ", "guardrail": "Guardrail: ", "attention": ""}
 

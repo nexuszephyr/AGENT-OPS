@@ -125,15 +125,24 @@ def create(conn: sqlite3.Connection, *, session_id: str, customer_id: str, kind:
     return item
 
 
-def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_path: str | None) -> dict:
-    """Refill a still-pending draft (fill_form called again before the officer decided)."""
+def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_path: str | None,
+                    actor: str = "agent") -> dict:
+    """Refill a still-pending draft (fill_form called again before the officer decided).
+
+    Audited as `queue_replace` with the changed fields, so the checker can see the draft changed.
+    """
     item = get(conn, item_id)
     if item["status"] != PENDING_APPROVAL:
         raise QueueError(f"{item_id} is {item['status']}; only pending drafts can be replaced")
     _check_payload(payload)
+    old = item["payload"]
+    changed = sorted(k for k in set(old) | set(payload) if old.get(k) != payload.get(k))
     conn.execute("UPDATE queue_items SET payload_json = ?, pdf_path = ? WHERE item_id = ?",
                  (json.dumps(payload, ensure_ascii=False), pdf_path, item_id))
     conn.commit()
+    audit.log(conn, item["session_id"], actor, "queue_replace",
+              {"item_id": item_id, "before": {k: old.get(k) for k in changed},
+               "after": {k: payload.get(k) for k in changed}})
     return get(conn, item_id)
 
 

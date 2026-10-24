@@ -9,15 +9,15 @@ Reset before every run: `python -m app.data.seed --reset`
 
 **0:20 Ramesh, farmer, Kannada (90 s)** *(shows Ingest → Decide → Act)*
 1. Officer picks **C001 Ramesh**. The status panel fills immediately from bank data: PMJJBY, PMSBY, APY ELIGIBLE; PM-KISAN **ELIGIBLE_BLOCKED**; PMFBY UNKNOWN.
-2. The agent asks **one** question in Kannada about the crop (needs the LLM; in rules-only mode the question is in English). Officer confirms ragi is notified → PMFBY turns ELIGIBLE.
+2. The agent asks **one** question in Kannada about the crop (needs the LLM; in rules-only mode the question is in English). The officer checks the notified list and confirms ragi + village in the **fact form** (the agent can't set these two facts itself) → PMFBY turns ELIGIBLE.
 3. Plan appears: **① Aadhaar seeding → ② eKYC** (unlocks PM-KISAN DBT), then enrollments. Checklist: RTC, sowing declaration, nominee, auto-debit consent.
 4. Items land in the approval queue as PENDING, each marked "Prepared by Banking Correspondent".
 5. **Maker-checker moment:** still acting as the Banking Correspondent, open the queue: Approve is locked with "only the Branch Manager can approve or reject". Switch **Acting as → Branch Manager** and approve seeding + eKYC; PM-KISAN DBT turns ELIGIBLE.
 
 **1:50 Priya, salaried (60 s)** *(shows rules + oversight)*
 1. Switch **Acting as → Banking Correspondent** (only the maker starts sessions; Start session is locked for the Branch Manager). Pick **C002 Priya** → **APY NOT_ELIGIBLE**, click it: "Age must be 40 or below" + "Income-tax payers cannot join APY", with source link.
-2. SSY ELIGIBLE (daughter, 6). Forms are generated.
-3. The **Branch Manager rejects** the PMJJBY form: "Nominee name spelled wrong, it's Anjali, not Anjeli." The agent revises it and requeues; the Branch Manager approves.
+2. SSY ELIGIBLE (daughter, 6). The officer gives the details, with the same typo everywhere: "Nominee for everything: Anjeli, daughter. SSY for the same daughter Anjeli, born 2020-03-14." The forms are generated, including SSY. (Two different spellings for the one daughter make the agent ask instead of guessing, which is correct, but then there's no typo left to reject in step 3.)
+3. The **Branch Manager rejects** the PMJJBY form: "Nominee name spelled wrong, it's Anjali, not Anjeli." The agent revises it, also corrects the still-pending PMSBY and SSY drafts that share the typo, and requeues; the Branch Manager approves.
 
 **2:50 Dashboard (30 s)** *(shows Report)*
 Customers screened, approved vs pending, blocked by seeding, top rejection rules, top missing docs, audit trail.

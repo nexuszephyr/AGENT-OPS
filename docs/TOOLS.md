@@ -23,7 +23,9 @@ out: { "profile": <Profile>, "rejected_fields": [ {"field": "...", "reason": "un
   - `conflicts with bank record`: the DB has a non-null value (e.g. DB says `has_savings_account=true`, customer says no) → the agent must tell the officer
   - `set by a completed service request; cannot be changed by conversation`: e.g. `aadhaar_seeded` after the seeding request was approved (system facts are listed under `_system_fields` in the overrides)
   - `conflicts with recorded fact`: an earlier interview fact. Only the **officer** (`/facts` route, actor `officer`) may correct one of these
+- **Officer-only fields:** `grows_notified_crop` and `in_notified_area` (the PMFBY notified-list check) are refused from the agent with `officer must confirm via the fact form`. Only the officer's `/facts` route can set them.
 - `facts` must be an object; anything else is a tool error.
+- An agent call with empty `facts` is a tool error (`no facts given…`): it would only burn the tool budget. The officer's `/facts` with empty facts still means "customer doesn't know".
 - `evidence` is required and stored in the audit log.
 
 ### `check_eligibility`
@@ -71,7 +73,8 @@ out: {
     {"order": 1, "type": "SERVICE_REQUEST", "action_id": "AADHAAR_SEEDING_REQUEST",
      "unlocks": ["PMKISAN_DBT"], "why": "Unlocks DBT for PM-KISAN"},
     {"order": 2, "type": "SERVICE_REQUEST", "action_id": "EKYC_REQUEST", "unlocks": ["PMKISAN_DBT"]},
-    {"order": 3, "type": "ENROLLMENT", "product_id": "PMJJBY", "docs_missing": ["NOMINEE","AUTODEBIT_CONSENT"]},
+    {"order": 3, "type": "ENROLLMENT", "product_id": "PMJJBY", "docs_missing": ["NOMINEE","AUTODEBIT_CONSENT"],
+     "missing_mandatory": ["nominee_name", "nominee_relation"]},
     ...
   ],
   "checklist": [ {"doc_id": "RTC", "label": "Land record (RTC / Pahani)", "used_by": ["PMKISAN_DBT","PMFBY"]} ]
@@ -83,6 +86,7 @@ Algorithm (`app/planner/documents.py`):
 3. Then `ELIGIBLE` enrollments ordered by fewest missing docs; then `ELIGIBLE_BLOCKED` enrollments, each placed after its actions.
 4. **Docs on file:** if `has_savings_account`, the bank already holds `AADHAAR`, `PHOTO`, `PASSBOOK`, `MOBILE`. Everything else is "customer to bring".
 5. `checklist` = deduplicated union of missing docs, each with `used_by`.
+6. Every `ENROLLMENT` step has `missing_mandatory`: the extra form fields `fill_form` will still need as `extra_fields` (from `MANDATORY_EXTRA` in `app/forms/fill.py`, passed in by the tool layer so the planner stays pure). The agent calls `fill_form` only once the conversation gives all of them; otherwise it asks the officer for all of them at once.
 
 ### `fill_form`
 ```
@@ -91,7 +95,7 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "pdf_path": "...", "mi
 ```
 - **Refuses** (error) unless the product's current status is `ELIGIBLE`. The rules engine is re-run inside the tool; the LLM's claim isn't trusted.
 - Fills fields from the profile. If mandatory extra fields are missing (nominee, girl child's name, crop…; see `MANDATORY_EXTRA` in `app/forms/fill.py`), **no item is created**: it returns `{"item_id": null, "status": "NEEDS_INFO", "missing_mandatory": [...]}`. The agent asks, then calls `fill_form` again.
-- Calling `fill_form` again while the item is still `PENDING_APPROVAL` replaces that draft.
+- Calling `fill_form` again while the item is still `PENDING_APPROVAL` replaces that draft (`queue.replace_pending`). It's audited as `queue_replace` with `{item_id, before, after}` for the changed fields only, and shown on the session timeline, so the checker can see that a draft changed after it was first prepared. `prepared_by` and the revision count stay unchanged.
 - Refuses extra fields that look like a full 12-digit Aadhaar number.
 - Creates a `queue_items` row (`kind=ENROLLMENT_FORM`) at `PENDING_APPROVAL`.
 

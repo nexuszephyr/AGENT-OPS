@@ -10,6 +10,7 @@ from app import officers, queue
 from app.config import MAX_QUESTIONS
 from app.data.seed import PERSONAS
 from app.db import row_to_dict
+from app.forms.fill import MANDATORY_EXTRA
 from app.planner.documents import plan_actions
 from app.planner.questions import BY_ID as QUESTIONS
 from app.planner.questions import pick_next_question
@@ -239,7 +240,7 @@ def state_view(conn: sqlite3.Connection, session_id: str) -> dict:
         "state": s["state"],
         "profile": prof,
         "results": res,
-        "plan": plan_actions(res, prof),
+        "plan": plan_actions(res, prof, mandatory_extra=MANDATORY_EXTRA),
         # while a question awaits its answer, it is the current question (one at a time)
         "next_question": ({"question": pv} if (pv := pending_view(s, res)) else next_question(conn, s, res)),
         "queue_items": queue.list_items(conn, session_id=session_id),
