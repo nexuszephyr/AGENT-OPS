@@ -111,6 +111,7 @@ tests/
   test_prompt_hardening.py fake-LLM regressions from the live run (#12): plan fields, siblings, retry, officer-only facts
   test_value.py            ₹ value: catalogue validation, dashboard sums, format_inr
   test_dashboard.py        dashboard: funnel / by-product / avg time, read-only GETs, /audit filters, privacy
+  test_ui_polish.py        UI polish (#24): no raw JSON, readable errors, approval chain, attention icons, prepare form
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks
