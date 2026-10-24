@@ -24,9 +24,9 @@ After pulling new code, reinstall first: `pip install -r requirements.txt` (e.g.
 **2:50 Dashboard (30 s)** *(shows Report)*
 Lead with the value tiles: "₹X lakh unlocked so far; ₹Y lakh still eligible across the branch" (indicative cover / annual benefit, not money paid out). "₹ unlocked" is cumulative over every approved enrollment in `bank.db`, with no date filter, so run `python -m app.data.seed --reset` right before going on stage or rehearsal approvals will inflate it. Then point at, in order:
 1. **The funnel:** "8 eligible products → 7 queued → 7 approved", with ₹ on the bars. The sentence under it says it without narration.
-2. **Click PMJJBY** in "Eligibility by product": the three panels and "Customers in this view" filter to it. **✕ Clear**.
+2. **Click PMJJBY** in "Eligibility by product": the three panels and "Customers in this view" filter to it. **Clear filters**.
 3. **Priya's APY:** "Most common not-eligible rules" shows both rules as text (age, income-tax payer). Hover for the rule ids.
-4. **Audit log:** Event = `approval_denied` shows the Banking Correspondent's refused approval (maker-checker). Select the row for the full record.
+4. **Audit log:** Event = **Approval denied** (`approval_denied`) shows the Banking Correspondent's refused approval (maker-checker). Select the row for the full record.
 
 **3:20 Trust close (30 s)**
 "The rules decide eligibility, the agent decides the workflow, and a second officer, never the one who prepared it, decides submission. Every action is cited and logged, there's synthetic data only, and nothing is submitted without a human."
@@ -63,4 +63,4 @@ Lead with the value tiles: "₹X lakh unlocked so far; ₹Y lakh still eligible 
 ## 4. Backup plan
 
 - Recorded video of the full script (#27).
-- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Customer doesn't know"), click **Prepare all steps** to queue the steps, and fix a rejected form with **Edit and send back…** on its card in the queue tab. Reject as Branch Manager, then switch **Acting as → Banking Correspondent** to edit and send it back (it is locked for the Branch Manager), then switch back to approve.
+- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Doesn't know"), click **Prepare all steps** to queue the steps, and fix a rejected form with **Edit and send back…** on its card in the queue tab. Reject as Branch Manager, then switch **Acting as → Banking Correspondent** to edit and send it back (it is locked for the Branch Manager), then switch back to approve.
