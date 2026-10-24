@@ -111,6 +111,8 @@ def api(method: str, path: str, quiet: bool = False, **kw):
     except requests.ConnectionError:
         st.error(f"Can't reach the API at {API}. Start it with `uvicorn app.api.main:app`, then reload this page.")
         st.stop()
+    if method != "GET":  # any write (even a refused one) adds audit rows / sessions: drop the cached facets
+        audit_facets.clear()
     if r.status_code == 403:  # maker-checker refusal: show the reason, not the raw response
         st.error(f"Refused: {r.json().get('detail', r.text)}")
         return None
@@ -775,6 +777,10 @@ with tab_dash:
                 with col:
                     st.markdown(f"**{title}**")
                     counts = panel_counts(in_product, kind, labels[kind])
+                    # a new product filter can remove the selected bar: drop that filter instead of stranding it
+                    if detail and detail[0] == kind and detail[1] not in {c["id"] for c in counts}:
+                        st.session_state.pop("dash_detail", None)
+                        st.rerun()
                     if not counts:
                         empty_state(none_text)
                         continue
@@ -831,7 +837,8 @@ with tab_dash:
               "Details": json.dumps(r["payload"], ensure_ascii=False)[:200]} for r in rows],
             width="stretch", height=400, hide_index=True, on_select="rerun", selection_mode="single-row",
             key="audit_table")
-        st.caption(f"Showing {len(rows)} of {facets.get('total', len(rows))} events"
+        # facets are cached for 10 s and another client may have written since: never show "62 of 55"
+        st.caption(f"Showing {len(rows)} of {max(facets.get('total', 0), len(rows))} events"
                    + (" (filtered)" if len(params) > 1 else "") + ". Select a row to see its full record.")
         chosen = pick.selection.rows if pick else []
         if chosen and chosen[0] < len(rows):
