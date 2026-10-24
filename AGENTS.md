@@ -22,7 +22,7 @@ Read next, in order:
 6. `docs/TOOLS.md`: agent tool contracts
 7. `docs/PROMPTS.md`: LLM system prompt and output formats
 8. `docs/RESPONSIBLE_AI.md`: guardrails that must not be broken
-9. `docs/TASKS.md`: build plan and owners
+9. `docs/TASKS.md`: sprint snapshot (the GitHub issues and milestones are the plan of record)
 10. `docs/DEMO.md`: demo script and acceptance tests
 11. `docs/UI.md`: UI design system (theme, status palette, shared components)
 
@@ -46,7 +46,6 @@ Read next, in order:
 | DB | SQLite via `sqlite3` (no ORM needed) |
 | LLM | Provider-agnostic wrapper in `app/agent/llm.py`; set via env vars |
 | PDFs | reportlab |
-| Translation / speech (optional) | Sarvam AI API |
 | Tests | pytest |
 
 Environment variables (put them in `.env`, never commit them):
@@ -55,7 +54,7 @@ Environment variables (put them in `.env`, never commit them):
 LLM_PROVIDER=anthropic|openai   # openai path is untested
 LLM_MODEL=<model id>
 LLM_API_KEY=...
-SARVAM_API_KEY=...        # optional
+SARVAM_API_KEY=           # unused (voice input was dropped)
 DB_PATH=app/data/bank.db
 YS_OFFICER_ID=officer-1   # optional (UI): officer id sent with approve / reject
 YS_OFFICER_NAME=Officer 1 # optional (UI): name shown in the header
