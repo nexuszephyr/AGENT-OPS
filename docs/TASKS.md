@@ -25,7 +25,7 @@ Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every P
 | #17 Officer console redesign: customer picker, product cards, chat | Abhinav | open |
 | #18 Live agent pipeline: Ingest → Decide → Act → Report with an activity timeline | Om | open |
 | #19 Approval queue redesign: inline PDF preview, revision diff, one-click actions | Abhinav | open |
-| #21 Branch dashboard redesign: KPI tiles, enrollment funnel, interactive charts | Om | open |
+| #21 Branch dashboard redesign: KPI tiles, enrollment funnel, interactive charts | Om | done |
 | #24 UI polish and accessibility pass | Abhinav | open |
 | #26 UI tests: extend the smoke AppTest and publish screenshots from CI | Om | open |
 | #38 Branch scan tab: call list UI with one-click "Start session" | Abhinav | planned |

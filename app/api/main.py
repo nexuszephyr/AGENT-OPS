@@ -6,19 +6,18 @@ Approve / reject are officer routes. The LLM has no path to them.
 """
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app import audit, config, db, officers, queue, scan, sessions, timeline
+from app import dashboard as dashboard_stats
 from app.agent import loop
 from app.agent.tools import revise_and_render
 from app.data import seed
-from app.planner.documents import plan_actions
 from app.rules import engine
 
 app = FastAPI(title="Yojana Saathi", version="0.1.0")
@@ -201,8 +200,16 @@ def pdf(item_id: str):
 
 
 @app.get("/audit")
-def audit_log(session_id: str | None = None, limit: int = 200):
-    return audit.fetch(conn(), session_id=session_id, limit=limit)
+def audit_log(session_id: str | None = None, limit: int = 200, actor: str | None = None,
+              event: Annotated[list[str] | None, Query()] = None, q: str | None = None):
+    """Read-only. `event` may repeat (any of them); `q` is a case-insensitive substring of event + payload."""
+    return audit.fetch(conn(), session_id=session_id, limit=limit, actor=actor, events=event, search=q)
+
+
+@app.get("/audit/facets")
+def audit_facets():
+    """Distinct actors, events and sessions for the dashboard's audit filters, plus the total row count."""
+    return audit.facets(conn())
 
 
 @app.get("/sessions/{session_id}/timeline")
@@ -217,49 +224,18 @@ def session_timeline(session_id: str):
 
 @app.get("/dashboard")
 def dashboard():
+    """Read-only: gathers the latest session per customer; the numbers come from app/dashboard.py."""
     c = conn()
     latest = c.execute(
         "SELECT session_id FROM sessions s WHERE created_at = "
         "(SELECT MAX(created_at) FROM sessions WHERE customer_id = s.customer_id) GROUP BY customer_id"
     ).fetchall()
-    eligible = 0
-    # ₹ value (#36), indicative cover / annual benefit; null values are skipped, never counted as ₹0
-    values = {p["id"]: p.get("value_inr") for p in engine.load_products()["products"]}
-    items = queue.list_items(c)
-    unlocked = {(i["customer_id"], i["product_id"]) for i in items if i["kind"] == queue.ENROLLMENT_FORM
-                and i["status"] in (queue.APPROVED, queue.SUBMITTED)}  # each product once per customer
-    value_eligible = 0
-    blocked: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
-    docs: Counter[str] = Counter()
-    states: Counter[str] = Counter()
+    rows = []
     for row in latest:
-        states[sessions.derive_state(c, row["session_id"])] += 1
+        state = sessions.derive_state(c, row["session_id"])
         s = sessions.get(c, row["session_id"])
-        res = sessions.results(c, s)
-        eligible += sum(r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED) for r in res)
-        value_eligible += sum(r.get("value_inr") or 0 for r in res
-                              if r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED)
-                              and (s["customer_id"], r["product_id"]) not in unlocked)
-        for r in res:
-            blocked.update(r["blocked_by"])
-            if r["status"] == engine.NOT_ELIGIBLE:
-                reasons.update(f["id"] for f in r["failed_rules"])
-        for d in plan_actions(res, sessions.profile(c, s))["checklist"]:
-            docs[d["doc_id"]] += 1
-    by_status = Counter(i["status"] for i in items)
-    return {
-        "customers_screened": len(latest),
-        "products_eligible": eligible,
-        "items_pending": by_status[queue.PENDING_APPROVAL],
-        "items_approved": by_status[queue.APPROVED] + by_status[queue.SUBMITTED],
-        "items_rejected": by_status[queue.REJECTED],
-        "items_escalated": by_status[queue.NEEDS_OFFICER],
-        "value_inr_unlocked": sum(values.get(pid) or 0 for _, pid in unlocked),
-        "value_inr_eligible": value_eligible,
-        "items_by_status": dict(by_status),
-        "sessions_by_state": dict(states),
-        "blocked_by_action": dict(blocked),
-        "not_eligible_reasons": dict(reasons.most_common()),
-        "top_missing_docs": dict(docs.most_common()),
-    }
+        prof = sessions.profile(c, s)
+        rows.append({"session_id": s["session_id"], "customer_id": s["customer_id"],
+                     "customer_name": prof.get("name"), "state": state,
+                     "results": sessions.results(c, s), "profile": prof})
+    return dashboard_stats.build(rows, queue.list_items(c), engine.load_products())

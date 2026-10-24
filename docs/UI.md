@@ -60,6 +60,11 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "View page" popover; works offline and in any browser |
 | `call_row(row, product_names)` + `opportunity_chip(o)` | One customer on the branch-scan call list: rank, "PM-KISAN at risk" if urgent, ✓/→ chips for what they could get (the tooltip shows each one's indicative ₹), the row's indicative ₹ total (`format_inr`, hidden when 0), the reason (#38) |
 | `filter_call_list(rows, products, blockers, districts, urgent_only)` | Pure filter for the call list; keeps the scan's ranking |
+| `funnel_chart(funnel)` + `funnel_rows` / `funnel_sentence` | Dashboard funnel (Altair): count, % of the previous stage, ₹ on eligible / approved; one generated sentence (#21) |
+| `product_status_chart(by_product)` + `status_scale()` | 7 stacked bars coloured from `STATUS`; a `selection_point` named `product` for click-to-filter (#21) |
+| `count_chart(rows, name)` + `panel_counts(rows, kind, labels)` | Panel bars (customers per rule / blocker / doc) with a click selection; counts each customer once (#21) |
+| `filter_results(rows, product, detail)` + `result_table(...)` | Pure filter over `customer_results` and the "Customers in this view" rows ("—" for a null value) (#21) |
+| `format_minutes(m)` · `state_chips(counts)` / `stage_chips(...)` | "—" / "<1 min" / "4 min" / "1 h 20 min"; sessions-by-stage chips, ESCALATED highlighted (#21) |
 | `activity_feed(events)` + `event_label(event)` | Newest-first agent activity; each event opens a "why" drawer with what went in and what came out. Guardrail refusals show a shield and "Guardrail:" |
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
@@ -101,6 +106,27 @@ The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (r
 | Call list | Filtered: urgent only | One click later: the console |
 |---|---|---|
 | ![scan](screenshots/scan-1366x768.png) | ![filters](screenshots/scan-filters-1366x768.png) | ![started](screenshots/scan-started-1366x768.png) |
+
+## Branch dashboard (#21)
+
+The Report stage, fourth tab. It's **read-only**: one `GET /dashboard` and one `GET /audit` per rerun (`/audit/facets` is cached for 10 s), no polling, and no button that approves, rejects, revises, acts or records facts. Top to bottom:
+
+1. **Header:** "Branch outcomes · Latest session per customer · indicative values", plus **Refresh**.
+2. **KPI rows** (`kpi_tiles`):
+   - Customers screened · Products eligible · Pending approval · Approved · Escalated (attention when > 0) · Avg. time to approval (`format_minutes`; "—" when there's nothing to average)
+   - ₹ unlocked · ₹ eligible, not yet enrolled · Rejected (attention when > 0), with the indicative-value caption from #36
+3. **Enrollment funnel** (`funnel_chart`): screened → eligible → queued → approved, each bar with its count, the % of the previous stage (not on "eligible", which counts products rather than customers) and ₹ on eligible / approved. Under it, one sentence built from the data (`funnel_sentence`).
+4. **Eligibility by product** (`product_status_chart`): 7 stacked bars coloured from `STATUS` (`status_scale`, legend in `status_legend` order). Clicking a bar sets `st.session_state["dash_product"]`, and "Filtered: … ✕ Clear" appears.
+5. **Three panels** (`count_chart` over `panel_counts`): blocked by a prerequisite, most common not-eligible rules (rule text; the id is in the tooltip), and most common missing documents. They count customers within the product filter. Clicking a bar adds a second filter (rule / blocker / doc).
+6. **Customers in this view** (`result_table` over `filter_results`): customer, product, status, reason / blocker, queue status, ₹ value ("—" when null). Read-only.
+7. **Sessions by stage** (`stage_chips`): one chip per state; ESCALATED uses the attention tone when > 0.
+8. **Audit log:** Session / Actor / Event (multi) / Search filters from `/audit/facets` and `?q=`; Time, Session, Actor, Event, Details (200 chars); "Showing N of M events". Selecting a row shows its full JSON, redacted as stored.
+
+On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a session to see outcomes".
+
+| After the Ramesh and Priya flows (full page) | Clicked PMJJBY: panels and table filter |
+|---|---|
+| ![full](screenshots/dashboard-full-1366.png) | ![filtered](screenshots/dashboard-filtered-1366.png) |
 
 ## Screenshots
 

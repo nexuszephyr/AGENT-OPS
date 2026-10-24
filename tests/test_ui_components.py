@@ -108,3 +108,59 @@ def test_plan_step_colours_are_readable():
     for key, (colour, _text) in ui.STEP_STATES.items():
         for background in (ui.COLORS["bg"], ui.COLORS["surface"]):
             assert contrast(colour, background) >= 4.5, f"{key} on {background}"
+
+
+# --- branch dashboard (issue #21) ---------------------------------------------------------
+
+def test_dashboard_chips_and_table_escape_names_and_rule_text():
+    html = ui.state_chips({"<b>ASKING</b>": 1, "ESCALATED": 2}, {"<b>ASKING</b>": "<script>x</script>"})
+    assert "<script>" not in html and "&lt;script&gt;" in html
+    assert ui.TONE["attention"].fg in html  # an escalation is highlighted with the palette colour
+    rows = ui.result_table(
+        [{"customer_id": "C9", "customer_name": "<img src=x>", "product_id": "APY", "status": "NOT_ELIGIBLE",
+          "failed_rules": ["R1"], "blocked_by": [], "missing_docs": [], "queue_status": None, "value_inr": None}],
+        {"R1": "Age must be 40 or below"}, {}, {})
+    assert rows[0]["Status"] == "Not eligible" and rows[0]["Reason / blocker"] == "Age must be 40 or below"
+    assert rows[0]["₹ value (indicative)"] == "—" and rows[0]["Queue"] == "—"  # null is never ₹0
+    # dataframe cells are plain text, not HTML: the name is passed through for Streamlit to render as text
+    assert rows[0]["Customer"].startswith("<img")
+
+
+def test_dashboard_status_colours_come_from_the_palette():
+    scale = ui.status_scale().to_dict()
+    assert scale["domain"] == [s.label for s in ui.STATUS.values()]
+    assert scale["range"] == [s.fg for s in ui.STATUS.values()]
+    spec = ui.product_status_chart({"APY": {"name": "APY", "statuses": {"NOT_ELIGIBLE": 2, "ELIGIBLE": 1}}}).to_dict()
+    assert spec["encoding"]["color"]["scale"]["range"] == [s.fg for s in ui.STATUS.values()]
+
+
+@pytest.mark.parametrize("minutes, text", [(None, "—"), (0.2, "<1 min"), (4, "4 min"), (60, "1 h"), (80, "1 h 20 min")])
+def test_format_minutes(minutes, text):
+    assert ui.format_minutes(minutes) == text
+
+
+def test_funnel_rows_and_sentence():
+    funnel = [{"stage": "screened", "count": 2}, {"stage": "eligible", "count": 8, "value_inr": 818000},
+              {"stage": "queued", "count": 7}, {"stage": "approved", "count": 7, "value_inr": 812000}]
+    rows = ui.funnel_rows(funnel)
+    assert [r["text"] for r in rows] == ["2", "8 · ₹8.2 lakh", "7 · 88%", "7 · 100% · ₹8.1 lakh"]
+    assert ui.funnel_sentence(funnel) == "8 eligible products → 7 queued → 7 approved (₹8.1 lakh unlocked, indicative)"
+    assert ui.funnel_sentence([{"stage": "screened", "count": 0}]) == "No customer has been screened yet."
+    ui.funnel_chart(funnel).to_dict()  # builds without error, also on empty data
+    ui.funnel_chart([{"stage": "screened", "count": 0}]).to_dict()
+    ui.count_chart([], "rule").to_dict()
+
+
+def test_dashboard_filters_and_panel_counts():
+    rows = [{"customer_id": "C1", "product_id": "APY", "failed_rules": ["R1"], "blocked_by": [], "missing_docs": []},
+            {"customer_id": "C2", "product_id": "APY", "failed_rules": ["R1", "R2"], "blocked_by": [],
+             "missing_docs": []},
+            {"customer_id": "C1", "product_id": "PMJJBY", "failed_rules": [], "blocked_by": ["SEED"],
+             "missing_docs": ["NOMINEE"]},
+            {"customer_id": "C1", "product_id": "PMSBY", "failed_rules": [], "blocked_by": [],
+             "missing_docs": ["NOMINEE"]}]
+    assert len(ui.filter_results(rows, "APY")) == 2
+    assert [r["customer_id"] for r in ui.filter_results(rows, "APY", ("rule", "R2"))] == ["C2"]
+    assert ui.panel_counts(rows, "rule", {"R1": "Rule one"})[0] == {"id": "R1", "label": "Rule one", "count": 2}
+    assert ui.panel_counts(rows, "doc", {}) == [{"id": "NOMINEE", "label": "NOMINEE", "count": 1}]  # once per customer
+    assert ui.panel_counts(ui.filter_results(rows, "APY"), "blocker", {}) == []
