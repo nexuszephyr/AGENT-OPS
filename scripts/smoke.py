@@ -166,7 +166,8 @@ def main() -> int:
 
         at = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         sm.check("UI renders without exceptions", not at.exception, [e.value for e in at.exception])
-        sm.check("UI shows three tabs", len(at.tabs) == 3, len(at.tabs))
+        sm.check("UI shows four tabs", [t.label for t in at.tabs] ==
+                 ["Officer console", "Branch scan", "Approval queue", "Branch dashboard"], [t.label for t in at.tabs])
         mgr = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         mgr.selectbox(key="officer_id").set_value("manager-1").run()
         starts = [b for b in mgr.button if b.label == "Start session"]
@@ -184,6 +185,14 @@ def main() -> int:
         sm.check("POST /scan returns a ranked call list", code == 200 and len(scan["call_list"]) > 0
                  and scan["customers_scanned"] == len(customers), code)
         sm.check("scan creates no queue items", len(after) == len(before), (len(before), len(after)))
+
+        # #38 done-when: from the scan tab, one click starts a session for the top-ranked customer
+        top = scan["call_list"][0]
+        ui = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
+        ui.button(key=f"scan_start_{top['customer_id']}").click().run()
+        sm.check("A10 UI: Start session on the top scan row opens the console with that customer",
+                 not ui.exception and ui.session_state["state"]["customer_id"] == top["customer_id"]
+                 and ui.session_state["nav"] == "Officer console", [e.value for e in ui.exception])
 
         # A7: injection in rules-only mode changes nothing
         _, st = http("POST", f"{api}/sessions", {"customer_id": "C004"})

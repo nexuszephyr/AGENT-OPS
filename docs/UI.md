@@ -58,6 +58,8 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `queue_group_header(name, meta, counts)` + `count_badges(counts)` | One customer's group in the approval queue, with status counts; escalations sort first (#19) |
 | `rejection_note(reason, by)` + `revision_diff(rows)` | Why an item came back and what changed since: field, value at the rejection (struck through), value now. Rows come from `GET /queue/{id}/history` |
 | `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "View page" popover; works offline and in any browser |
+| `call_row(row, product_names)` + `opportunity_chip(o)` | One customer on the branch-scan call list: rank, "PM-KISAN at risk" if urgent, ✓/→ chips for what they could get (the tooltip shows each one's indicative ₹), the row's indicative ₹ total (`format_inr`, hidden when 0), the reason (#38) |
+| `filter_call_list(rows, products, blockers, districts, urgent_only)` | Pure filter for the call list; keeps the scan's ranking |
 | `activity_feed(events)` + `event_label(event)` | Newest-first agent activity; each event opens a "why" drawer with what went in and what came out. Guardrail refusals show a shield and "Guardrail:" |
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
@@ -91,6 +93,14 @@ Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per cu
 | Priya: the diff since the rejection, ready to approve | Escalated first | "View page" |
 |---|---|---|
 | ![diff](screenshots/queue-1366x768.png) | ![escalated](screenshots/queue-escalated-1366x768.png) | ![page](screenshots/queue-view-page-1366x768.png) |
+
+## Branch scan (#38)
+
+The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (recommend-only: it queues nothing). Tiles show ₹ unclaimed (indicative, from #36, compact: "₹1.1 crore"; "—" if no listed customer has a valued scheme), customers to call, PM-KISAN payments at risk, accounts needing Aadhaar seeding, and the top product. The call list keeps the scan's ranking (urgent first), shows the top 10, and hides the filters (product, blocker, district, urgent only) in a collapsed expander. That keeps rank 1's **Start session** on screen at 1366×768 (checked in Chromium: the button ends at 736px). **Start session** on a row starts the session and switches to the Officer console. The tabs track state (`st.tabs(key="nav", on_change="rerun")`), and the switch is applied through `goto_tab` before the tabs are drawn. For the Branch Manager the buttons are locked, as in the picker (maker-checker).
+
+| Call list | Filtered: urgent only | One click later: the console |
+|---|---|---|
+| ![scan](screenshots/scan-1366x768.png) | ![filters](screenshots/scan-filters-1366x768.png) | ![started](screenshots/scan-started-1366x768.png) |
 
 ## Screenshots
 
