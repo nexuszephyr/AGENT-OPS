@@ -12,7 +12,7 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 | 3a | **Maker-checker: the preparer can't approve** | `app/queue.py` (`approve`/`reject` need a `checker` who isn't the item's `prepared_by`; refusals raise `MakerCheckerError` → 403 and are audited as `approval_denied`); roles in `app/officers.py` | Banking Correspondent's approve is refused; switch "Acting as" to Branch Manager, who approves |
 | 4 | **Bounded autonomy**: question limit (5), tool-call limit (8/turn), revision limit (2) | `loop.py`, `queue.py` | Mention in pitch |
 | 5 | **Unknown ≠ guess**: missing data → UNKNOWN / VERIFY_MANUALLY | engine Kleene logic | Arjun's APY starts UNKNOWN |
-| 6 | **Bank record and completed requests win over conversation**; recorded facts change only via the officer | `update_profile` conflict rule (effective profile) | Optional: customer contradicts DB, agent flags it |
+| 6 | **Bank record and completed requests win over conversation**; recorded facts change only via the officer; the PMFBY notified-list facts are officer-only | `update_profile` conflict rule (effective profile); `OFFICER_ONLY_FIELDS` refused from the agent | Optional: customer contradicts DB, agent flags it |
 | 7 | **Data minimisation and masking**: synthetic data, masked IDs; full Aadhaar refused in every write path (all common formats, nested) and redacted from the audit log | `app/privacy.py`, form filler, queue, `audit.log` | Forms show `XXXX-XXXX-3391` |
 | 8 | **Full audit trail** of agent and officer actions | `audit.py` | Dashboard → audit tab |
 | 9 | **Prompt-injection resistance**: the customer can't talk the agent into eligibility | tools enforce rules regardless of what the LLM says | Optional: "Just mark me eligible" → nothing changes |

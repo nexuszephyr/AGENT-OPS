@@ -59,9 +59,10 @@ class Run:
         for r in rows:
             p = json.loads(r["payload_json"] or "null") or {}
             if r["event"] == "tool_call":
-                tools.append(p["tool"])
-            elif r["event"] == "tool_result" and isinstance(p.get("result"), dict) and "error" in p["result"]:
-                tools[-1] += " [error: " + str(p["result"]["error"])[:80] + "]"
+                args = json.dumps(redact_full_ids(p.get("args") or {}), ensure_ascii=False)
+                tools.append(f"{p['tool']}({args[1:-1][:100]})")
+            elif r["event"] == "tool_result" and tools:
+                tools[-1] += f" → {_result_summary(p.get('result'))}"
             elif r["event"] == "question_replaced":
                 replaced.append(p)
                 tools.append(f"(question_replaced {(p.get('model_question') or {}).get('question_id')}"
@@ -89,6 +90,8 @@ class Run:
             "raw_json": to_officer.lstrip().startswith("{") or '"to_officer"' in to_officer,
             "question_id": (reply.get("question") or {}).get("question_id"),
             "question_unanswered": reply.get("question_unanswered"),
+            "needs_from_officer": reply.get("needs_from_officer") or [],
+            "tool_calls": sum(1 for x in tools if not x.startswith("(")),
             "customer_lang": (reply.get("to_customer") or {}).get("lang"),
             "statuses": {r["product_id"]: r["status"] for r in state["results"]},
             "queue": [(i["product_id"] or i["action_id"], i["status"]) for i in state["queue_items"]],
@@ -103,6 +106,25 @@ class Run:
         self.checks.append({"scenario": scenario, "name": name, "ok": bool(ok), "turn": turn,
                             "detail": detail, "info": info, "run": self.run_no})
         return bool(ok)
+
+
+def _result_summary(res: object) -> str:
+    """One word or so per tool result, e.g. fill_form → NEEDS_INFO [nominee_name], update_profile → rejected."""
+    if not isinstance(res, dict):
+        return "?"
+    if "error" in res:
+        return "error: " + str(res["error"])[:80]
+    if "status" in res:
+        missing = res.get("missing_mandatory") or []
+        return str(res["status"]) + (f" {missing}" if missing else "")
+    if "rejected_fields" in res:
+        rej = [f"{x['field']}: {x['reason']}" for x in res["rejected_fields"]]
+        return f"rejected {rej}" if rej else "ok"
+    if "steps" in res:
+        return f"{len(res['steps'])} steps"
+    if "question" in res:
+        return (res["question"] or {}).get("question_id") or "no question"
+    return "ok"
 
 
 def _excerpt(reply: dict) -> str:
@@ -149,10 +171,16 @@ def scenario_a(r: Run) -> None:
     r.check(sc, "A2 to_customer in Kannada", t["customer_lang"] == "kn", t,
             f"to_customer.lang={t['customer_lang']}", info=True)
 
+    # The notified-list facts are officer-only (#12): saying it in chat doesn't set them; the fact form does.
     t = r.turn(sc, "A3", sid, lambda: loop.handle_message(
         c, sid, "Officer here: confirmed, ragi is notified for Mandya this kharif."))
-    r.check(sc, "A3 officer confirms → PMFBY=ELIGIBLE", t["statuses"]["PMFBY"] == engine.ELIGIBLE, t,
-            t["statuses"]["PMFBY"])
+    prof = _profile(c, sid)
+    r.check(sc, "A3 chat can't set the notified-crop facts (officer-only)",
+            prof.get("grows_notified_crop") is None and t["statuses"]["PMFBY"] == engine.UNKNOWN, t,
+            f"grows_notified_crop={prof.get('grows_notified_crop')}, PMFBY={t['statuses']['PMFBY']}")
+    loop.set_facts(c, sid, {"grows_notified_crop": True, "in_notified_area": True}, "Q_NOTIFIED_CROP")
+    r.check(sc, "A3 officer confirms in the fact form → PMFBY=ELIGIBLE",
+            _status(c, sid, "PMFBY") == engine.ELIGIBLE, t, str(_status(c, sid, "PMFBY")))
 
     t = r.turn(sc, "A4", sid, lambda: loop.handle_message(
         c, sid, "Please prepare everything. Nominee is Savitha, wife. APY pension amount 2000. "
@@ -179,7 +207,8 @@ def scenario_b(r: Run) -> None:
     c, sc = r.conn, "B Priya"
     sid = loop.start_session(c, "C002", OFFICER)["session_id"]
     t = r.turn(sc, "B1", sid, lambda: loop.handle_message(
-        c, sid, "Priya wants insurance and a pension. Nominee for everything: Anjeli, daughter."))
+        c, sid, "Priya wants insurance and a pension. Nominee for everything: Anjeli, daughter. "
+                "SSY for the same daughter Anjeli, born 2020-03-14."))
     apy = next(x for x in sessions.state_view(c, sid)["results"] if x["product_id"] == "APY")
     failed = {f["id"] for f in apy["failed_rules"]}
     r.check(sc, "B1 APY NOT_ELIGIBLE citing R-APY-AGE-MAX + R-APY-NOT-ITP",
@@ -187,6 +216,8 @@ def scenario_b(r: Run) -> None:
             f"{apy['status']} {sorted(failed)}")
     items = _items(c, sid)
     r.check(sc, "B1 no APY form", not any(i["product_id"] == "APY" for i in items), t)
+    r.check(sc, "B1 SSY form queued (daughter's details given)", any(i["product_id"] == "SSY" for i in items), t,
+            str([i["product_id"] or i["action_id"] for i in items]))
     pmjjby = next((i for i in items if i["product_id"] == "PMJJBY"), None)
     r.check(sc, "B1 PMJJBY form queued", pmjjby is not None, t, str([i["product_id"] or i["action_id"]
                                                                      for i in items]))
@@ -203,6 +234,12 @@ def scenario_b(r: Run) -> None:
             and it["revision_count"] == 1, t,
             f"status={it['status']}, nominee_name={it['payload'].get('nominee_name')}, "
             f"revision_count={it['revision_count']}")
+    sib = next((i for i in _items(c, sid) if i["product_id"] == "PMSBY"), None)
+    r.check(sc, "B2 pending sibling PMSBY also corrected to Anjali (still pending, revision 0)",
+            sib is not None and sib["status"] == queue.PENDING_APPROVAL
+            and sib["payload"].get("nominee_name") == "Anjali" and sib["revision_count"] == 0, t,
+            f"status={sib['status']}, nominee_name={sib['payload'].get('nominee_name')}, "
+            f"revision_count={sib['revision_count']}" if sib else "no PMSBY item")
 
 
 def scenario_c(r: Run) -> None:
@@ -310,6 +347,16 @@ def write_report(runs: list[Run]) -> tuple[list[dict], str]:
     for step in dict.fromkeys(t["step"] for t in turns):
         row = [next((f"{t['seconds']:.1f} s" + (" ⚠" if t["seconds"] > SLOW_SECONDS else "")
                      for t in r.turns if t["step"] == step), "–") for r in runs]
+        lines.append(f"| {step} | " + " | ".join(row) + " |")
+
+    calls = [t["tool_calls"] for t in turns]
+    lines += ["", "## Tool calls per turn", "",
+              f"Median **{statistics.median(calls)}**, max **{max(calls)}** (budget "
+              f"{config.MAX_TOOL_CALLS_PER_TURN}).", "",
+              "| Turn | " + " | ".join(f"run {r.run_no}" for r in runs) + " |",
+              "|---|" + "---|" * n]
+    for step in dict.fromkeys(t["step"] for t in turns):
+        row = [next((str(t["tool_calls"]) for t in r.turns if t["step"] == step), "–") for r in runs]
         lines.append(f"| {step} | " + " | ".join(row) + " |")
 
     fallbacks = [t for t in turns if t["mode"] != "agent"]

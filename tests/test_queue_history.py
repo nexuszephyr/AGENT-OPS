@@ -101,3 +101,18 @@ def test_a_long_session_keeps_the_items_first_events(client, conn):
     client.post(f"/queue/{item}/reject", json={**CHECKER, "reason": "nominee"})
     h = history(client, item)
     assert [e["event"] for e in h["events"]] == ["queue_create", "reject"]
+
+
+def test_a_refilled_draft_after_the_rejection_is_in_the_diff(client, conn):
+    """Merge with #46: fill_form refilling a pending draft (queue_replace) after a rejection changes what the
+    checker approves, so it must show in "what changed since the rejection"."""
+    sid, item = priya_pmjjby(client)
+    client.post(f"/queue/{item}/reject", json={**CHECKER, "reason": "Nominee name is Anjali, not Anjeli"})
+    client.post(f"/queue/{item}/revise", json={**MAKER, "changes": {"nominee_name": "Anjali"}})
+    out = ToolBox(conn, sid).call("fill_form", {"product_id": "PMJJBY", "extra_fields": {
+        "nominee_name": "Anjali", "nominee_relation": "sister"}})          # the agent refills the pending draft
+    assert out["item_id"] == item
+    h = history(client, item)
+    assert "queue_replace" in [e["event"] for e in h["events"]]
+    assert {d["field"]: (d["before"], d["after"]) for d in h["diff"]} == {
+        "nominee_name": ("Anjeli", "Anjali"), "nominee_relation": ("daughter", "sister")}

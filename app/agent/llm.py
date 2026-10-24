@@ -49,10 +49,11 @@ def _anthropic(system, history, tools, execute, max_calls) -> str:
     calls = 0
     while True:
         budget_left = calls < max_calls
-        kwargs = dict(model=config.LLM_MODEL, max_tokens=1500, system=system,
-                      messages=messages, tools=a_tools)
-        if not budget_left:
-            kwargs["tool_choice"] = {"type": "none"}
+        kwargs = dict(model=config.LLM_MODEL, max_tokens=1500, system=system, messages=messages)
+        if a_tools:  # a JSON-only retry passes no tools
+            kwargs["tools"] = a_tools
+            if not budget_left:
+                kwargs["tool_choice"] = {"type": "none"}
         resp = client.messages.create(**kwargs)
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
         if not tool_uses or not budget_left:
@@ -88,8 +89,8 @@ def _openai(system, history, tools, execute, max_calls) -> str:
     calls = 0
     while True:
         budget_left = calls < max_calls
-        resp = client.chat.completions.create(model=config.LLM_MODEL, messages=messages, tools=o_tools,
-                                              tool_choice="auto" if budget_left else "none")
+        extra = {"tools": o_tools, "tool_choice": "auto" if budget_left else "none"} if o_tools else {}
+        resp = client.chat.completions.create(model=config.LLM_MODEL, messages=messages, **extra)
         msg = resp.choices[0].message
         if not msg.tool_calls or not budget_left:
             return (msg.content or "").strip()

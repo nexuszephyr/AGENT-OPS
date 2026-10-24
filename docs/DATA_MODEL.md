@@ -80,7 +80,7 @@ CREATE TABLE audit_log (
   ts TEXT DEFAULT CURRENT_TIMESTAMP,
   session_id TEXT,
   actor TEXT NOT NULL,                 -- agent | officer | system
-  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | approval_denied | revise | scan_run | escalate | submit_mock | completion_effect | error
+  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | reply_retry | question_replaced | question_resolved | queue_create | queue_replace | approve | reject | approval_denied | revise | scan_run | escalate | submit_mock | completion_effect | error
   payload_json TEXT
 );
 ```

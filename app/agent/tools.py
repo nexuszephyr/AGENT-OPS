@@ -39,6 +39,8 @@ PROFILE_TYPES: dict[str, type | tuple] = {
     "girl_children_under_10": int,
     "existing_ssy_accounts": int,
 }
+# Only the officer may set these (POST /sessions/{id}/facts): the notified-crop list is checked by a human.
+OFFICER_ONLY_FIELDS = {"grows_notified_crop", "in_notified_area"}
 OCCUPATIONS = {"farmer", "salaried", "self_employed", "gig_worker", "homemaker", "student",
                "pensioner", "govt_employee"}
 
@@ -116,6 +118,8 @@ class ToolBox:
     def update_profile(self, facts: dict, evidence: str = "") -> dict:
         if not isinstance(facts, dict):
             return {"error": "facts must be an object of field -> value"}
+        if not facts and self.actor != "officer":  # an empty call only burns the tool budget (live run, #12)
+            return {"error": "no facts given: call update_profile only when the customer or officer stated a fact"}
         if not isinstance(evidence, str) or not evidence.strip():
             return {"error": "evidence is required: quote what the customer or officer said"}
         s = self.session
@@ -134,6 +138,9 @@ class ToolBox:
             value, ok = _coerce(value, typ)
             if not ok:
                 rejected.append({"field": fname, "reason": "bad type"})
+                continue
+            if fname in OFFICER_ONLY_FIELDS and self.actor != "officer":
+                rejected.append({"field": fname, "reason": "officer must confirm via the fact form"})
                 continue
             if fname == "occupation" and value not in OCCUPATIONS:
                 rejected.append({"field": fname, "reason": f"occupation must be one of {sorted(OCCUPATIONS)}"})
@@ -165,7 +172,7 @@ class ToolBox:
         return out
 
     def plan_actions(self) -> dict:
-        return plan_actions(self._results(), self._profile())
+        return plan_actions(self._results(), self._profile(), mandatory_extra=fill.MANDATORY_EXTRA)
 
     def fill_form(self, product_id: str, extra_fields: dict | None = None) -> dict:
         # Re-run the rules: never trust the model's claim that a product is eligible.
@@ -182,7 +189,7 @@ class ToolBox:
         existing = queue.find_open(self.conn, self.session_id, queue.ENROLLMENT_FORM, product_id)
         if existing and existing["status"] == queue.PENDING_APPROVAL:
             # validate + write first, render after (the PDF must always match the DB payload)
-            item = queue.replace_pending(self.conn, existing["item_id"], payload, None)
+            item = queue.replace_pending(self.conn, existing["item_id"], payload, None, actor=self.actor)
         elif existing:
             return {"error": f"{product_id} already has item {existing['item_id']} in status "
                              f"{existing['status']}; revise that item instead"}

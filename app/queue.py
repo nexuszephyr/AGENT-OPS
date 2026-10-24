@@ -125,15 +125,24 @@ def create(conn: sqlite3.Connection, *, session_id: str, customer_id: str, kind:
     return item
 
 
-def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_path: str | None) -> dict:
-    """Refill a still-pending draft (fill_form called again before the officer decided)."""
+def replace_pending(conn: sqlite3.Connection, item_id: str, payload: dict, pdf_path: str | None,
+                    actor: str = "agent") -> dict:
+    """Refill a still-pending draft (fill_form called again before the officer decided).
+
+    Audited as `queue_replace` with the changed fields, so the checker can see the draft changed.
+    """
     item = get(conn, item_id)
     if item["status"] != PENDING_APPROVAL:
         raise QueueError(f"{item_id} is {item['status']}; only pending drafts can be replaced")
     _check_payload(payload)
+    old = item["payload"]
+    changed = sorted(k for k in set(old) | set(payload) if old.get(k) != payload.get(k))
     conn.execute("UPDATE queue_items SET payload_json = ?, pdf_path = ? WHERE item_id = ?",
                  (json.dumps(payload, ensure_ascii=False), pdf_path, item_id))
     conn.commit()
+    audit.log(conn, item["session_id"], actor, "queue_replace",
+              {"item_id": item_id, "before": {k: old.get(k) for k in changed},
+               "after": {k: payload.get(k) for k in changed}})
     return get(conn, item_id)
 
 
@@ -230,14 +239,15 @@ def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: s
 
 
 # Audit events that belong to one item's story (read by history()).
-_HISTORY_EVENTS = ("queue_create", "reject", "revise", "escalate", "approve", "approval_denied", "submit_mock")
+_HISTORY_EVENTS = ("queue_create", "queue_replace", "reject", "revise", "escalate", "approve", "approval_denied",
+                   "submit_mock")
 
 
 def history(conn: sqlite3.Connection, item_id: str) -> dict:
     """An item's story from the audit log, plus what changed since its latest rejection (issue #19).
 
-    Read-only. `diff` lists each field revised after the latest `reject`: `before` is the value at the
-    rejection, `after` the value now. Fields revised back to their old value are left out.
+    Read-only. `diff` lists each field changed after the latest `reject` (by `revise` or a `queue_replace`
+    refill): `before` is the value at the rejection, `after` the value now. Fields changed back are left out.
     """
     item = get(conn, item_id)
     # filtered by event in SQL and unlimited, so a long session can't push the item's first events out
@@ -251,10 +261,17 @@ def history(conn: sqlite3.Connection, item_id: str) -> dict:
     if last_reject is not None:
         first_before: dict = {}
         for e in events[last_reject + 1:]:
+            # a revision, or a pending draft refilled by fill_form (queue_replace, #46): both change the content
+            # the checker is about to approve, so both belong in the diff
             if e["event"] == "revise":
-                for k in e.get("changes") or {}:
-                    # older revise events (before #19) have no "before": the old value is then unknown (None)
-                    first_before.setdefault(k, (e.get("before") or {}).get(k))
+                fields = list(e.get("changes") or {})
+            elif e["event"] == "queue_replace":
+                fields = list(e.get("after") or {})
+            else:
+                continue
+            for k in fields:
+                # older revise events (before #19) have no "before": the old value is then unknown (None)
+                first_before.setdefault(k, (e.get("before") or {}).get(k))
         diff = [{"field": k, "before": b, "after": item["payload"].get(k)}
                 for k, b in first_before.items() if b != item["payload"].get(k)]
     rejection = events[last_reject] if last_reject is not None else None
