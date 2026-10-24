@@ -24,6 +24,7 @@ Read next, in order:
 8. `docs/RESPONSIBLE_AI.md`: guardrails that must not be broken
 9. `docs/TASKS.md`: build plan and owners
 10. `docs/DEMO.md`: demo script and acceptance tests
+11. `docs/UI.md`: UI design system (theme, status palette, shared components)
 
 ## Non-negotiable rules
 
@@ -56,6 +57,9 @@ LLM_MODEL=<model id>
 LLM_API_KEY=...
 SARVAM_API_KEY=...        # optional
 DB_PATH=app/data/bank.db
+YS_OFFICER_ID=officer-1   # optional (UI): officer id sent with approve / reject
+YS_OFFICER_NAME=Officer 1 # optional (UI): name shown in the header
+YS_BRANCH=...             # optional (UI): branch shown in the header
 ```
 
 ## Repo layout
@@ -86,6 +90,7 @@ app/
   db.py                    SQLite schema + in-place column migrations
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs
+ui/components.py           shared UI components + status palette (docs/UI.md); theme in .streamlit/config.toml
 tests/
   test_rules.py            rule engine + the two demo traps
   test_planner.py
@@ -94,6 +99,7 @@ tests/
   test_agent_loop.py       scripted fake-LLM turns
   test_api.py              DEMO.md acceptance tests over HTTP
   test_review_fixes.py     regression tests for the PR #2 review
+  test_ui_components.py    UI palette ↔ engine statuses, contrast, HTML escaping, theme ↔ tokens
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks
