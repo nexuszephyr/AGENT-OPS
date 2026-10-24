@@ -77,12 +77,47 @@ toolbox_names = set(ToolBox(_Dummy(), "x")._tools)  # type: ignore[arg-type]
 check("rule 2: LLM tool schemas match ToolBox exactly", schema_names == toolbox_names,
       f"schemas only: {schema_names - toolbox_names}; toolbox only: {toolbox_names - schema_names}")
 
-approve_calls = []
-for f in py_files("app/agent", "app/rules", "app/planner", "app/forms"):
-    for node in ast.walk(ast.parse(f.read_text())):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("approve",):
-            approve_calls.append(f"{f.relative_to(ROOT)}:{node.lineno}")
-check("rule 2: agent code never calls queue.approve", not approve_calls, ", ".join(approve_calls))
+# Only the officer route may approve or reject. Look for any way to reach the officer-only queue
+# transitions, not just `x.approve(...)`: an aliased import (`from app.queue import approve as done`),
+# a bare reference (`f = queue.approve`), getattr with a string, or raw SQL on queue_items.
+OFFICER_ONLY = {"approve", "reject", "_move"}
+QUEUE_SQL = re.compile(r"\b(UPDATE|INSERT\s+INTO|REPLACE\s+INTO)\s+queue_items\b", re.IGNORECASE)
+GATE_OWNERS = {"app/queue.py", "app/api/main.py"}  # the state machine and the officer routes
+
+
+def _reaches_gate(node: ast.AST) -> bool:
+    if isinstance(node, ast.ImportFrom):  # from app.queue import approve [as anything]
+        return node.module == "app.queue" and any(a.name in OFFICER_ONLY | {"*"} for a in node.names)
+    if isinstance(node, ast.Attribute):  # queue.approve, called or not
+        return node.attr in OFFICER_ONLY
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+        return any(isinstance(a, ast.Constant) and a.value in OFFICER_ONLY for a in node.args)
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(QUEUE_SQL.search(node.value))
+
+
+def approval_bypasses(source: str) -> list[int]:
+    """Line numbers in `source` that reach an officer-only queue transition."""
+    return sorted({n.lineno for n in ast.walk(ast.parse(source)) if _reaches_gate(n)})
+
+
+# The check must catch the bypasses we know about, or it proves nothing.
+_KNOWN_BYPASSES = [
+    "queue.approve(conn, i, 'agent')",
+    "from app.queue import approve as finish\nfinish(conn, i, 'agent')",
+    "from app.queue import *",
+    "f = queue.approve",
+    "getattr(queue, 'approve')(conn, i, 'agent')",
+    "queue._move(conn, item, 'SUBMITTED')",
+    "conn.execute(\"UPDATE queue_items SET status = 'SUBMITTED'\")",
+]
+missed = [src for src in _KNOWN_BYPASSES if not approval_bypasses(src)]
+check("rule 2: the approval-bypass detector catches every known bypass", not missed, str(missed))
+
+approve_refs = [f"{f.relative_to(ROOT)}:{n}" for f in py_files("app", "ui")
+                if str(f.relative_to(ROOT)) not in GATE_OWNERS
+                for n in approval_bypasses(f.read_text())]
+check("rule 2: only the officer routes reach queue approve/reject or write queue_items", not approve_refs,
+      ", ".join(approve_refs))
 
 
 # Rule 3: every decision cites a rule and a source ----------------------------------------------
