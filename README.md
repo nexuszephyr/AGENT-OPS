@@ -59,6 +59,7 @@ Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required c
 | `app/agent/loop.py` | Orchestrator, rules-only fallback, rejection → revision turn |
 | `app/sessions.py` | Session store, state machine, completion effects |
 | `app/queue.py` / `app/audit.py` | Approval-queue state machine / audit log |
+| `app/timeline.py` | Audit log → pipeline-stage timeline for the live agent view (`GET /sessions/{id}/timeline`) |
 | `app/forms/fill.py` | Masked, watermarked PDF forms |
 | `app/api/main.py` | FastAPI routes |
 | `ui/streamlit_app.py` | Officer console, approval queue, dashboard |

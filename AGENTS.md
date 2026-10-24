@@ -86,6 +86,7 @@ app/
   privacy.py               full-Aadhaar detection / redaction (every write path + audit log)
   audit.py                 audit log helper
   officers.py              officer registry + roles (maker / checker) for maker-checker approval
+  timeline.py              audit log → Ingest/Decide/Act/Report timeline for the UI (pure, read-only)
   db.py                    SQLite schema + in-place column migrations
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs
@@ -100,6 +101,7 @@ tests/
   test_review_fixes.py     regression tests for the PR #2 review
   test_ui_components.py    UI palette ↔ engine statuses, contrast, HTML escaping, theme ↔ tokens
   test_ui_console.py       officer console: plan stepper follows the real queue, new components escape text
+  test_timeline.py         session timeline: stages, folded tool calls, guardrail marks, live "running", redaction
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks

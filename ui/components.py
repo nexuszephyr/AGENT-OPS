@@ -222,6 +222,29 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-step-detail {{ color: var(--ys-muted); font-size: .85rem; }}
 .ys-step-state {{ display: inline-block; font-size: .8rem; font-weight: 600; margin-top: .15rem; }}
 
+/* agent pipeline (#18): CGI's four stages, with the tools the agent used in each */
+.ys-pipe {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .6rem;
+  margin: .4rem 0 1rem; }}
+.ys-stage {{ background: var(--ys-surface); border: 1px solid var(--ys-border); border-radius: 8px;
+  padding: .55rem .75rem; }}
+.ys-stage-current {{ border: 2px solid var(--ys-primary); background: {TONE["info"].bg}; }}
+.ys-stage-head {{ display: flex; gap: .55rem; align-items: center; }}
+.ys-stage-num {{ flex: none; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-weight: 700; font-size: .85rem; border: 2px solid currentColor;
+  background: var(--ys-surface); }}
+.ys-stage-done .ys-stage-num {{ background: {TONE["positive"].fg}; border-color: {TONE["positive"].fg};
+  color: #fff !important; }}
+.ys-stage-label {{ font-weight: 700; color: var(--ys-ink); line-height: 1.2; }}
+.ys-stage-name {{ color: var(--ys-muted); font-size: .78rem; line-height: 1.2; }}
+.ys-stage-state {{ font-size: .78rem; font-weight: 600; margin-left: auto; white-space: nowrap; }}
+.ys-stage-note {{ color: var(--ys-muted); font-size: .82rem; margin-top: .35rem; }}
+.ys-chips {{ display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .35rem; }}
+.ys-chip {{ font-size: .76rem; padding: .05rem .45rem; border-radius: 4px; background: var(--ys-surface-alt);
+  color: var(--ys-ink); white-space: nowrap; }}
+@keyframes ys-blink {{ 50% {{ opacity: .35; }} }}
+.ys-chip-active {{ background: var(--ys-primary); color: #fff; }}
+.ys-chip-active::before {{ content: "● "; animation: ys-blink 1s ease-in-out infinite; }}
+
 @media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important; animation: none !important; }} }}
 </style>
 """
@@ -545,3 +568,108 @@ def plan_steps(state: Mapping[str, Any], action_labels: Mapping[str, str]) -> li
             step_state = "todo"
         steps.append(Step(title(s.get("product_id"), s.get("action_id")), step_state, detail))
     return steps
+
+
+# --- agent pipeline + activity timeline (issue #18) -----------------------------------------
+
+STAGE_STATE_TEXT = {"done": "✓ Done", "current": "● Now", "upcoming": "○ Next"}
+
+
+def pipeline(stages: Sequence[Mapping[str, Any]], notes: Mapping[str, str] | None = None,
+             active_tool: str | None = None) -> None:
+    """Ingest → Decide → Act → Report, from GET /sessions/{id}/timeline. Each stage lists the tools used in it;
+    during a turn, the tool the agent used last is highlighted. State is icon + text, never colour alone."""
+    notes = notes or {}
+    cells = []
+    for n, s in enumerate(stages, 1):
+        status = s.get("status", "upcoming")
+        colour = {"done": TONE["positive"].fg, "current": COLORS["primary"]}.get(status, COLORS["muted"])
+        tools = s.get("tools") or {}
+        chip_html = []
+        for t, c in tools.items():
+            active = t == active_tool and status == "current"
+            cls = "ys-chip ys-chip-active" if active else "ys-chip"
+            title = ' title="Used last"' if active else ""
+            chip_html.append(f'<span class="{cls}"{title}>{_e(t)}{f" ×{c}" if c > 1 else ""}</span>')
+        chips = "".join(chip_html)
+        note = notes.get(s.get("id", ""), "")
+        cells.append(
+            f'<div class="ys-stage ys-stage-{_e(status)}" aria-label="Stage {n}: {_e(s.get("name"))}, '
+            f'{_e(STAGE_STATE_TEXT.get(status, status)[2:])}">'
+            '<div class="ys-stage-head">'
+            f'<span class="ys-stage-num" style="color:{colour}" aria-hidden="true">'
+            f'{"✓" if status == "done" else n}</span>'
+            f'<div><div class="ys-stage-label">{_e(s.get("label"))}</div>'
+            f'<div class="ys-stage-name">{_e(s.get("name"))}</div></div>'
+            f'<span class="ys-stage-state" style="color:{colour}">{_e(STAGE_STATE_TEXT.get(status, status))}</span>'
+            "</div>"
+            + (f'<div class="ys-stage-note">{_e(note)}</div>' if note else "")
+            + (f'<div class="ys-chips">{chips}</div>' if chips else "")
+            + "</div>")
+    _html('<div class="ys-pipe" role="list" aria-label="Agent pipeline">' + "".join(cells) + "</div>")
+
+
+# Icon per event (Streamlit material icons). Tone wins over kind: a refusal always shows the shield.
+_TONE_ICON = {"running": ":material/progress_activity:", "guardrail": ":material/shield:",
+              "attention": ":material/warning:"}
+_KIND_ICON = {"tool": ":material/build:", "message": ":material/chat:", "llm_reply": ":material/smart_toy:",
+              "session_start": ":material/login:", "question_resolved": ":material/help:",
+              "approve": ":material/task_alt:", "submit_mock": ":material/send:", "revise": ":material/edit:",
+              "completion_effect": ":material/published_with_changes:"}
+_TONE_PREFIX = {"running": "Running: ", "guardrail": "Guardrail: ", "attention": ""}
+
+
+def event_time(ts: str | None) -> str:
+    """SQLite CURRENT_TIMESTAMP is UTC: show it as local wall-clock time."""
+    from datetime import UTC, datetime
+
+    if not ts:
+        return ""
+    try:
+        return datetime.fromisoformat(ts).replace(tzinfo=UTC).astimezone().strftime("%H:%M:%S")
+    except ValueError:
+        return ts
+
+
+def _md(text: str) -> str:
+    """Neutralise Markdown in text that goes into an expander label (labels render Markdown)."""
+    return "".join("\\" + ch if ch in "\\`*_[]<>#|~" else ch for ch in text)
+
+
+def event_label(e: Mapping[str, Any]) -> tuple[str, str]:
+    """(label, icon) for one timeline event. Label = time, title (bold) and a short summary."""
+    tone = e.get("tone", "ok")
+    icon = _TONE_ICON.get(tone) or _KIND_ICON.get(e.get("kind", ""), ":material/radio_button_checked:")
+    summary = str(e.get("summary") or "")
+    if len(summary) > 90:
+        summary = summary[:89] + "…"
+    title = _TONE_PREFIX.get(tone, "") + str(e.get("title") or "")
+    label = f"{event_time(e.get('ts'))}  **{_md(title)}**" + (f" · {_md(summary)}" if summary else "")
+    return label, icon
+
+
+def activity_feed(events: Sequence[Mapping[str, Any]], limit: int | None = 10) -> None:
+    """Newest first. Each event opens a "why" drawer with what went in (args) and what came out (result).
+    Identifiers were already redacted when the audit log was written."""
+    shown = list(reversed(events))
+    if limit is not None:
+        shown = shown[:limit]
+    for e in shown:
+        label, icon = event_label(e)
+        with st.expander(label, icon=icon):
+            if e.get("summary"):
+                st.markdown(_md(str(e["summary"])))
+            detail = e.get("detail") or {}
+            if e.get("kind") == "tool":
+                st.caption(f"{_who_label(e.get('actor'))} called `{e.get('tool')}` in the {e.get('stage')} stage")
+                st.markdown("**What went in**")
+                st.json(detail.get("args") or {}, expanded=2)
+                if "result" in detail:
+                    st.markdown("**What came out**")
+                    st.json(detail["result"], expanded=1)
+            elif detail:
+                st.json(detail, expanded=1)
+
+
+def _who_label(actor: Any) -> str:
+    return {"agent": "The agent", "officer": "The officer"}.get(str(actor), "The system")

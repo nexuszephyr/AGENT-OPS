@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import audit, config, db, officers, queue, sessions
+from app import audit, config, db, officers, queue, sessions, timeline
 from app.agent import loop
 from app.agent.tools import revise_and_render
 from app.data import seed
@@ -171,6 +171,16 @@ def pdf(item_id: str):
 @app.get("/audit")
 def audit_log(session_id: str | None = None, limit: int = 200):
     return audit.fetch(conn(), session_id=session_id, limit=limit)
+
+
+@app.get("/sessions/{session_id}/timeline")
+def session_timeline(session_id: str):
+    """The session's audit log as UI-ready events grouped by pipeline stage (issue #18).
+
+    Read-only. Safe to poll while an agent turn runs: tool calls show as "running" until their result lands.
+    """
+    s = _guard(sessions.get, conn(), session_id)
+    return timeline.build(s, audit.fetch(conn(), session_id=session_id, limit=2000))
 
 
 @app.get("/dashboard")
