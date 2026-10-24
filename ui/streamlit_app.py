@@ -19,31 +19,39 @@ import streamlit as st
 # Bare import: `streamlit run ui/streamlit_app.py` puts ui/ on sys.path (tests do the same with
 # sys.path.insert). Importing this file as `ui.streamlit_app` would raise ModuleNotFoundError.
 from components import (
-    COLORS,
     activity_feed,
     app_header,
     call_row,
     card_title,
+    count_chart,
     customer_bar,
     customer_bubble,
     customer_card,
     empty_state,
     event_time,
     filter_call_list,
+    filter_results,
     format_inr,
+    format_minutes,
+    funnel_chart,
+    funnel_sentence,
     key_values,
     kpi_tiles,
+    panel_counts,
     pdf_first_page_png,
     pipeline,
     plan_steps,
     product_grid,
+    product_status_chart,
     question_prompt,
     queue_badge,
     queue_group_header,
     rejection_note,
+    result_table,
     revision_diff,
     section_header,
     setup_page,
+    stage_chips,
     status_legend,
     status_style,
     stepper,
@@ -116,6 +124,12 @@ def api(method: str, path: str, quiet: bool = False, **kw):
 def set_state(new_state: dict | None) -> None:
     if new_state:
         st.session_state["state"] = new_state
+
+
+@st.cache_data(ttl=10)
+def audit_facets() -> dict:
+    """Distinct actors / events / sessions for the audit filters (cached: they change slowly)."""
+    return api("GET", "/audit/facets") or {}
 
 
 def label(field: str) -> str:
@@ -697,41 +711,130 @@ with tab_scan:
 
 # --- Dashboard ------------------------------------------------------------------------------
 with tab_dash:
+    # Read-only tab (#21): one /dashboard and one /audit call per rerun, no approve/reject/act/facts calls.
+    head, refresh = st.columns([5, 1], vertical_alignment="bottom")
+    with head:
+        section_header("Branch outcomes", "Latest session per customer · indicative values")
+    if refresh.button("Refresh", key="dash_refresh", width="stretch"):
+        audit_facets.clear()
+        st.rerun()
     d = api("GET", "/dashboard") or {}
     if d:
-        section_header("Branch outcomes", "Across the latest session for each customer.")
         kpi_tiles([
             ("Customers screened", d["customers_screened"]),
             ("Products eligible", d["products_eligible"]),
             ("Pending approval", d["items_pending"]),
             ("Approved", d["items_approved"]),
-            ("Rejected", d["items_rejected"], d["items_rejected"] > 0),
             ("Escalated to officer", d["items_escalated"], d["items_escalated"] > 0),
+            ("Avg. time to approval", format_minutes(d.get("avg_minutes_to_approval"))),
         ])
-        kpi_tiles([("₹ unlocked", format_inr(d.get("value_inr_unlocked", 0), compact=True)),
-                   ("₹ eligible, not yet enrolled", format_inr(d.get("value_inr_eligible", 0), compact=True))])
+        kpi_tiles([
+            ("₹ unlocked", format_inr(d.get("value_inr_unlocked", 0), compact=True)),
+            ("₹ eligible, not yet enrolled", format_inr(d.get("value_inr_eligible", 0), compact=True)),
+            ("Rejected", d["items_rejected"], d["items_rejected"] > 0),
+        ])
         st.caption("Indicative cover / annual benefit per product (not money paid out). Unlocked so far = every "
                    "approved enrolment form in this branch's data; products without a single value are left out.")
+
+        if not d.get("customers_screened"):
+            empty_state("Run a session to see outcomes",
+                        "Start a session in the Officer console; the funnel and charts fill in as you go.")
+        else:
+            section_header("Enrollment funnel", "Customer-product pairs from screening to approval.")
+            st.altair_chart(funnel_chart(d["funnel"]), width="stretch")
+            st.caption(funnel_sentence(d["funnel"]))
+
+            v = st.session_state.get("dash_v", 0)  # bumping it resets every chart selection
+
+            section_header("Eligibility by product", "Click a bar to filter the panels and the table below.")
+            ev = st.altair_chart(product_status_chart(d["by_product"]), on_select="rerun",
+                                 key=f"dash_prod_{v}", width="stretch")
+            picked = (ev.selection.get("product") or [{}])[0].get("product_id") if ev else None
+            st.session_state["dash_product"] = picked
+            labels = {"rule": d["rule_labels"], "blocker": d["action_labels"], "doc": d["doc_labels"]}
+            detail = st.session_state.get("dash_detail")
+
+            active = [f"Product {picked}"] if picked else []
+            if detail:
+                active.append(labels[detail[0]].get(detail[1], detail[1]))
+            if active:
+                chip, clear = st.columns([5, 1], vertical_alignment="center")
+                chip.markdown("**Filtered:** " + " · ".join(active))
+                if clear.button("✕ Clear", key="dash_clear", width="stretch"):
+                    st.session_state["dash_v"] = v + 1
+                    st.session_state.pop("dash_detail", None)
+                    st.session_state.pop("dash_product", None)
+                    st.rerun()
+
+            in_product = filter_results(d["customer_results"], picked)
+            cols = st.columns(3, gap="medium")
+            panels = [("Blocked by a prerequisite", "blocker", "No customer is waiting on a prerequisite."),
+                      ("Most common not-eligible rules", "rule", "No rule has excluded anyone here."),
+                      ("Most common missing documents", "doc", "No documents are missing here.")]
+            for col, (title, kind, none_text) in zip(cols, panels, strict=True):
+                with col:
+                    st.markdown(f"**{title}**")
+                    counts = panel_counts(in_product, kind, labels[kind])
+                    if not counts:
+                        empty_state(none_text)
+                        continue
+                    pev = st.altair_chart(count_chart(counts, kind), on_select="rerun",
+                                          key=f"dash_{kind}_{v}", width="stretch")
+                    sel = (pev.selection.get(kind) or [{}])[0].get("id") if pev else None
+                    # the panel whose selection just changed sets the detail filter
+                    if sel != st.session_state.get(f"dash_last_{kind}"):
+                        st.session_state[f"dash_last_{kind}"] = sel
+                        if sel:
+                            st.session_state["dash_detail"] = (kind, sel)
+                        elif detail and detail[0] == kind:
+                            st.session_state.pop("dash_detail", None)
+                        st.rerun()
+
+            section_header("Customers in this view", "Read-only: open a customer from the Officer console.")
+            view = filter_results(d["customer_results"], picked, st.session_state.get("dash_detail"))
+            if view:
+                st.dataframe(result_table(view, d["rule_labels"], d["action_labels"], d["doc_labels"]),
+                             width="stretch", hide_index=True, height=min(420, 38 * (len(view) + 1)))
+            else:
+                empty_state("No customer matches these filters", "Clear the filters to see everyone.")
+
         if d.get("sessions_by_state"):
-            st.caption("Sessions by stage: " + ", ".join(f"{label(s)} {n}" for s, n in d["sessions_by_state"].items()))
-        cols = st.columns(3, gap="medium")
-        panels = [("Blocked by a prerequisite", "blocked_by_action", "No customer is waiting on a prerequisite."),
-                  ("Most common not-eligible rules", "not_eligible_reasons", "No rule has excluded anyone yet."),
-                  ("Most common missing documents", "top_missing_docs", "No documents are missing.")]
-        for col, (title, key, none_text) in zip(cols, panels, strict=True):
-            with col:
-                st.markdown(f"**{title}**")
-                if d[key]:
-                    # one readable row per bar instead of squeezing every rule into a fixed height
-                    st.bar_chart(d[key], horizontal=True, height=max(160, 34 * len(d[key])),
-                                 color=COLORS["primary"])
-                else:
-                    empty_state(none_text)
-    section_header("Audit log", "Every agent, officer and system action, newest first.")
-    rows = api("GET", "/audit", params={"limit": 200}) or []
+            section_header("Sessions by stage")
+            stage_chips(d["sessions_by_state"], {s: label(s) for s in d["sessions_by_state"]})
+
+    section_header("Audit log", "Every agent, officer and system action, newest first. Stored redacted.")
+    facets = audit_facets()
+    f_session, f_actor, f_event, f_q = st.columns([2, 1, 2, 2], vertical_alignment="bottom")
+    session_f = f_session.selectbox("Session", ["All", *facets.get("sessions", [])], key="audit_session")
+    actor_names = {"agent": "Agent", "officer": "Officer", "system": "System"}
+    actor_f = f_actor.selectbox("Actor", ["All", *facets.get("actors", [])], key="audit_actor",
+                                format_func=lambda a: actor_names.get(a, a))
+    events_f = f_event.multiselect("Event", facets.get("events", []), key="audit_events")
+    q_f = f_q.text_input("Search", key="audit_q", placeholder="e.g. approval_denied, Anjali, Q-…")
+    params: dict = {"limit": 200}
+    if session_f != "All":
+        params["session_id"] = session_f
+    if actor_f != "All":
+        params["actor"] = actor_f
+    if events_f:
+        params["event"] = events_f
+    if q_f.strip():
+        params["q"] = q_f.strip()
+    rows = api("GET", "/audit", params=params) or []
     if not rows:
-        empty_state("No activity yet", "Actions are recorded here as soon as a session starts.")
+        empty_state("No activity matches" if len(params) > 1 else "No activity yet",
+                    "Actions are recorded here as soon as a session starts.")
     else:
-        st.dataframe([{"Time": r["ts"], "Session": r["session_id"], "Actor": r["actor"], "Event": r["event"],
-                       "Details": json.dumps(r["payload"], ensure_ascii=False)[:200]} for r in rows],
-                     width="stretch", height=400, hide_index=True)
+        pick = st.dataframe(
+            [{"Time": event_time(r["ts"]), "Session": r["session_id"] or "—",
+              "Actor": actor_names.get(r["actor"], r["actor"]), "Event": r["event"],
+              "Details": json.dumps(r["payload"], ensure_ascii=False)[:200]} for r in rows],
+            width="stretch", height=400, hide_index=True, on_select="rerun", selection_mode="single-row",
+            key="audit_table")
+        st.caption(f"Showing {len(rows)} of {facets.get('total', len(rows))} events"
+                   + (" (filtered)" if len(params) > 1 else "") + ". Select a row to see its full record.")
+        chosen = pick.selection.rows if pick else []
+        if chosen and chosen[0] < len(rows):
+            r = rows[chosen[0]]
+            st.markdown(f"**{r['event']}** · {event_time(r['ts'])} · {actor_names.get(r['actor'], r['actor'])}")
+            st.json(r["payload"], expanded=2)

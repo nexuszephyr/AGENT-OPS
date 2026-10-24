@@ -838,3 +838,164 @@ def filter_call_list(rows: Sequence[Mapping[str, Any]], products: Iterable[str] 
             continue
         out.append(c)
     return out
+
+
+# --- branch dashboard (issue #21) ---------------------------------------------------------
+# Pure helpers (tested) + Altair chart builders. Colours come from STATUS / COLORS only.
+
+FUNNEL_LABELS = {"screened": "Customers screened", "eligible": "Eligible products", "queued": "Forms queued",
+                 "approved": "Approved"}
+_DETAIL_FIELD = {"rule": "failed_rules", "blocker": "blocked_by", "doc": "missing_docs"}
+
+
+def format_minutes(minutes: float | None) -> str:
+    """'—' when there is nothing to average (never 0), else '<1 min', '4 min', '1 h 20 min'."""
+    if minutes is None:
+        return "—"
+    if minutes < 1:
+        return "<1 min"
+    m = round(minutes)
+    return f"{m} min" if m < 60 else f"{m // 60} h" + (f" {m % 60} min" if m % 60 else "")
+
+
+def funnel_rows(funnel: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """Chart rows with a text label: count, % of the previous stage, ₹ where the stage has one.
+
+    No % on 'eligible': it counts products, the stage before it counts customers."""
+    out: list[dict] = []
+    prev: int | None = None
+    for i, f in enumerate(funnel):
+        n = int(f["count"])
+        text = str(n)
+        if i >= 2 and prev:
+            text += f" · {round(100 * n / prev)}%"
+        if f.get("value_inr"):
+            text += f" · {format_inr(int(f['value_inr']), compact=True)}"
+        out.append({"stage": FUNNEL_LABELS.get(f["stage"], f["stage"]), "order": i, "count": n, "text": text})
+        prev = n
+    return out
+
+
+def funnel_sentence(funnel: Sequence[Mapping[str, Any]]) -> str:
+    """'19 eligible products → 14 queued → 12 approved (₹4.1 lakh unlocked, indicative)', from the data."""
+    by = {f["stage"]: f for f in funnel}
+    if not by.get("screened", {}).get("count"):
+        return "No customer has been screened yet."
+    e, q, a = (by.get(k, {}).get("count", 0) for k in ("eligible", "queued", "approved"))
+    worth = by.get("approved", {}).get("value_inr") or 0
+    noun = "product" if e == 1 else "products"
+    tail = f" ({format_inr(worth, compact=True)} unlocked, indicative)" if worth else ""
+    return f"{e} eligible {noun} → {q} queued → {a} approved{tail}"
+
+
+def filter_results(rows: Sequence[Mapping[str, Any]], product: str | None = None,
+                   detail: tuple[str, str] | None = None) -> list[Mapping[str, Any]]:
+    """customer_results rows for the active filters: a product, and/or one rule / blocker / doc id."""
+    out = []
+    for r in rows:
+        if product and r.get("product_id") != product:
+            continue
+        if detail and detail[1] not in (r.get(_DETAIL_FIELD[detail[0]]) or []):
+            continue
+        out.append(r)
+    return out
+
+
+def panel_counts(rows: Sequence[Mapping[str, Any]], kind: str, labels: Mapping[str, str]) -> list[dict]:
+    """Customers per rule / blocker / doc id among `rows` (each customer once per id), most first."""
+    seen: dict[str, set] = {}
+    for r in rows:
+        for x in r.get(_DETAIL_FIELD[kind]) or []:
+            seen.setdefault(x, set()).add(r.get("customer_id"))
+    counts = sorted(((x, len(c)) for x, c in seen.items()), key=lambda t: (-t[1], t[0]))
+    return [{"id": x, "label": labels.get(x, x), "count": n} for x, n in counts]
+
+
+def result_table(rows: Sequence[Mapping[str, Any]], rule_labels: Mapping[str, str],
+                 action_labels: Mapping[str, str], doc_labels: Mapping[str, str]) -> list[dict]:
+    """The 'Customers in this view' table: readable text, '—' for a missing value (never ₹0)."""
+    out = []
+    for r in rows:
+        why = ([rule_labels.get(x, x) for x in r.get("failed_rules") or []]
+               + [f"needs {action_labels.get(x, x)}" for x in r.get("blocked_by") or []]
+               + [f"missing {doc_labels.get(x, x)}" for x in r.get("missing_docs") or []])
+        q = r.get("queue_status")
+        value = r.get("value_inr")
+        out.append({"Customer": f"{r.get('customer_name') or ''} ({r.get('customer_id')})",
+                    "Product": r.get("product_id"), "Status": status_style(str(r.get("status"))).label,
+                    "Reason / blocker": "; ".join(why) or "—",
+                    "Queue": status_style(q, QUEUE_STATUS).label if q else "—",
+                    "₹ value (indicative)": format_inr(value) if value is not None else "—"})
+    return out
+
+
+def state_chips(counts: Mapping[str, int], names: Mapping[str, str] | None = None) -> str:
+    """Sessions by stage as chips; ESCALATED uses the attention tone when > 0. HTML, escaped."""
+    names = names or {}
+    t = TONE["attention"]
+    chips = []
+    for state, n in counts.items():
+        text = _e(f"{names.get(state, state)} {n}")
+        if state == "ESCALATED" and n:
+            chips.append(f'<span class="ys-chip" style="color:{t.fg};background:{t.bg};font-weight:600">'
+                         f"{_e(t.icon)} {text}</span>")
+        else:
+            chips.append(f'<span class="ys-chip">{text}</span>')
+    return '<div class="ys-chips">' + "".join(chips) + "</div>"
+
+
+def stage_chips(counts: Mapping[str, int], names: Mapping[str, str] | None = None) -> None:
+    _html(state_chips(counts, names))
+
+
+def status_scale() -> Any:
+    """Altair colour scale for eligibility statuses, in legend order (same as status_legend)."""
+    import altair as alt
+
+    return alt.Scale(domain=[s.label for s in STATUS.values()], range=[s.fg for s in STATUS.values()])
+
+
+def funnel_chart(funnel: Sequence[Mapping[str, Any]]) -> Any:
+    import altair as alt
+
+    data = alt.Data(values=funnel_rows(funnel))
+    y = alt.Y("stage:N", sort=alt.EncodingSortField(field="order"), title=None)
+    bars = alt.Chart(data).mark_bar(color=COLORS["primary"]).encode(
+        x=alt.X("count:Q", title=None, axis=None), y=y,
+        tooltip=[alt.Tooltip("stage:N", title="Stage"), alt.Tooltip("text:N", title="Count")])
+    text = alt.Chart(data).mark_text(align="left", dx=4, color=COLORS["ink"]).encode(x="count:Q", y=y, text="text:N")
+    return (bars + text).properties(height=46 * max(1, len(funnel)))
+
+
+def product_status_chart(by_product: Mapping[str, Mapping[str, Any]]) -> Any:
+    """One stacked horizontal bar per product (all 7), coloured by status; click a bar to filter."""
+    import altair as alt
+
+    values = [{"product_id": pid, "name": p.get("name") or pid, "status": status_style(k).label, "order": i,
+               "count": (p.get("statuses") or {}).get(k, 0)}
+              for pid, p in by_product.items() for i, k in enumerate(STATUS)
+              if (p.get("statuses") or {}).get(k, 0)]
+    pick = alt.selection_point(name="product", fields=["product_id"])
+    return alt.Chart(alt.Data(values=values)).mark_bar().encode(
+        y=alt.Y("product_id:N", title=None, sort=list(by_product)),
+        x=alt.X("count:Q", title="Customers", stack="zero"),
+        color=alt.Color("status:N", scale=status_scale(), legend=alt.Legend(title=None, orient="bottom")),
+        order=alt.Order("order:Q"),
+        opacity=alt.condition(pick, alt.value(1), alt.value(0.35)),
+        tooltip=[alt.Tooltip("name:N", title="Product"), alt.Tooltip("status:N", title="Status"),
+                 alt.Tooltip("count:Q", title="Customers")],
+    ).add_params(pick).properties(height=36 * max(1, len(by_product)))
+
+
+def count_chart(rows: Sequence[Mapping[str, Any]], name: str) -> Any:
+    """Horizontal bars from panel_counts rows; click one to filter (selection `name`, field `id`)."""
+    import altair as alt
+
+    pick = alt.selection_point(name=name, fields=["id"])
+    data = alt.Data(values=[{**r, "short": str(r["label"])[:48]} for r in rows])
+    return alt.Chart(data).mark_bar(color=COLORS["primary"]).encode(
+        y=alt.Y("short:N", title=None, sort="-x"), x=alt.X("count:Q", title="Customers"),
+        opacity=alt.condition(pick, alt.value(1), alt.value(0.35)),
+        tooltip=[alt.Tooltip("label:N", title="What"), alt.Tooltip("id:N", title="Id"),
+                 alt.Tooltip("count:Q", title="Customers")],
+    ).add_params(pick).properties(height=max(120, 34 * len(rows)))
