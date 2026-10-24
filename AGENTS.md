@@ -86,6 +86,7 @@ app/
   privacy.py               full-Aadhaar detection / redaction (every write path + audit log)
   audit.py                 audit log helper
   officers.py              officer registry + roles (maker / checker) for maker-checker approval
+  scan.py                  branch-wide proactive scan: ranked call list (pure, recommend-only)
   db.py                    SQLite schema + in-place column migrations
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs

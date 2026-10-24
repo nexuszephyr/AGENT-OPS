@@ -34,7 +34,7 @@
 | Stage | Components |
 |---|---|
 | Data ingestion | `fetch_customer` (core-banking mock), `update_profile` (facts the LLM extracts from the interview) |
-| Intelligent decision-making | `rules/engine.py` (eligibility), `planner/questions.py` (next question), `planner/documents.py` (prerequisites + docs order) |
+| Intelligent decision-making | `rules/engine.py` (eligibility), `planner/questions.py` (next question), `planner/documents.py` (prerequisites + docs order), `scan.py` (branch-wide proactive scan: ranked call list, recommend-only) |
 | Action execution | `forms/fill.py` (PDFs), `raise_request` (seeding / eKYC / account opening), `queue.py` (approval gate) |
 | Outcome reporting | `/dashboard`, `/audit`, Streamlit dashboard tab |
 

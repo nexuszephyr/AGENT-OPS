@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.agent.prompts import TOOL_SCHEMAS  # noqa: E402
 from app.agent.tools import ToolBox  # noqa: E402
-from app.data.seed import build_profiles  # noqa: E402
+from app.data.seed import build_branch_profiles, build_profiles  # noqa: E402
 from app.privacy import FULL_AADHAAR, find_full_ids  # noqa: E402
 from app.rules import engine  # noqa: E402
 
@@ -141,8 +141,9 @@ if catalog:
 
 # Rule 5: synthetic, masked data only ---------------------------------------------------------
 
+SEEDED = build_profiles() + build_branch_profiles()  # demo personas + branch customers (C101-C130)
 hits = []
-for prof in build_profiles():
+for prof in SEEDED:
     hits += [f"seed {prof['customer_id']}.{h}" for h in find_full_ids(prof)]
 scan = [*py_files("app", "ui", "scripts"), *ROOT.glob("app/**/*.json"), *ROOT.glob("docs/*.md"), ROOT / "README.md",
         ROOT / "REFERENCE.md"]
@@ -154,9 +155,12 @@ for f in scan:
             hits.append(f"{f.relative_to(ROOT)}:{n}")
 check("rule 5: no full Aadhaar-like numbers in seed data, code or docs", not hits, ", ".join(hits[:10]))
 
-masks = [p["customer_id"] for p in build_profiles()
+masks = [p["customer_id"] for p in SEEDED
          if p.get("aadhaar_masked") and not re.fullmatch(r"XXXX-XXXX-\d{4}", p["aadhaar_masked"])]
 check("rule 5: every seeded Aadhaar uses the XXXX-XXXX-1234 mask", not masks, str(masks))
+masks = [f"{p['customer_id']}.{k}" for p in SEEDED for k in ("account_no_masked", "mobile_masked")
+         if p.get(k) and not re.fullmatch(r"XXXXXX\d{4}", p[k])]
+check("rule 5: every seeded account and mobile number uses the XXXXXX1234 mask", not masks, str(masks))
 
 
 # Secrets ------------------------------------------------------------------------------------

@@ -19,6 +19,10 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from app.data.seed import BRANCH_CUSTOMERS  # noqa: E402
+
 LOG_DIR = Path(os.getenv("SMOKE_LOG_DIR", ROOT / "smoke-logs"))
 NOMINEE = {"nominee_name": "Anjali", "nominee_relation": "daughter"}
 MAKER, CHECKER = {"officer_id": "officer-1"}, {"officer_id": "manager-1"}  # maker-checker (#39)
@@ -89,8 +93,12 @@ def main() -> int:
         code, _ = http("GET", f"http://127.0.0.1:{ui_port}/_stcore/health")
         sm.check("Streamlit UI boots and is healthy", code == 200)
 
-        code, customers = http("GET", f"{api}/customers")
-        sm.check("6 demo customers seeded", code == 200 and isinstance(customers, list) and len(customers) == 6)
+        code, demo = http("GET", f"{api}/customers?segment=demo")
+        sm.check("6 demo customers seeded", code == 200 and isinstance(demo, list)
+                 and [c["customer_id"] for c in demo] == [f"C00{n}" for n in range(1, 7)], demo)
+        _, customers = http("GET", f"{api}/customers")
+        sm.check("branch customers seeded alongside the demo personas",
+                 len(customers) == 6 + len(BRANCH_CUSTOMERS), len(customers))
 
         # A1-A3: Ramesh
         _, st = http("POST", f"{api}/sessions", {"customer_id": "C001"})
@@ -168,6 +176,14 @@ def main() -> int:
         sm.check("UI 'Start session' renders the product panel without exceptions",
                  not at.exception and any("Products" in s.value for s in at.subheader),
                  [e.value for e in at.exception])
+
+        # Proactive scan (#37): a ranked call list, and it only recommends
+        _, before = http("GET", f"{api}/queue")
+        code, scan = http("POST", f"{api}/scan")
+        _, after = http("GET", f"{api}/queue")
+        sm.check("POST /scan returns a ranked call list", code == 200 and len(scan["call_list"]) > 0
+                 and scan["customers_scanned"] == len(customers), code)
+        sm.check("scan creates no queue items", len(after) == len(before), (len(before), len(after)))
 
         # A7: injection in rules-only mode changes nothing
         _, st = http("POST", f"{api}/sessions", {"customer_id": "C004"})

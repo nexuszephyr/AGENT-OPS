@@ -14,7 +14,7 @@ Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every P
 | #11 Run the agent end to end with a real Claude API key | Om | done |
 | #12 Harden prompts and reply parsing from the real-LLM run | Om | open |
 | #36 ₹ value unlocked: rupee value per product and dashboard tiles | Abhinav | planned |
-| #37 Branch-wide proactive scan: ranked call list of missed benefits (absorbs #14 extra personas) | Om | planned |
+| #37 Branch-wide proactive scan: ranked call list of missed benefits (absorbs #14 extra personas) | Om | done (#43) |
 | #39 Maker-checker approval: the preparer can't approve their own enrollment | Om | done (#41) |
 
 **Sprint 2: Beautiful & interactive UI**
