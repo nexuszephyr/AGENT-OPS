@@ -100,6 +100,17 @@ def main() -> int:
         sm.check("branch customers seeded alongside the demo personas",
                  len(customers) == 6 + len(BRANCH_CUSTOMERS), len(customers))
 
+        # Dashboard (#21) on an empty DB: renders, no Altair errors, zero tiles + an empty state
+        os.environ["API_URL"] = api
+        from streamlit.testing.v1 import AppTest
+
+        empty = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
+        sm.check("dashboard renders on an empty DB without exceptions", not empty.exception,
+                 [e.value for e in empty.exception])
+        _, d0 = http("GET", f"{api}/dashboard")
+        sm.check("empty dashboard: 0 screened, avg time to approval is null (shown as —)",
+                 d0["funnel"][0]["count"] == 0 and d0["avg_minutes_to_approval"] is None, d0["funnel"])
+
         # A1-A3: Ramesh
         _, st = http("POST", f"{api}/sessions", {"customer_id": "C001"})
         sid = st["session_id"]
@@ -159,13 +170,18 @@ def main() -> int:
                  d["items_pending"] == 0 and d["items_approved"] >= 8, d)
         _, audit = http("GET", f"{api}/audit?limit=500")
         sm.check("audit log records officer approvals", any(a["event"] == "approve" for a in audit))
+        f = {x["stage"]: x["count"] for x in d["funnel"]}
+        sm.check("dashboard funnel: eligible >= queued >= approved > 0",
+                 f["eligible"] >= f["queued"] >= f["approved"] > 0, d["funnel"])
+        _, denied = http("GET", f"{api}/audit?event=approval_denied&actor=officer")
+        sm.check("audit filter finds the refused maker approval", len(denied) >= 1, len(denied))
 
         # UI: render every tab in-process against the live API and click "Start session"
-        os.environ["API_URL"] = api
-        from streamlit.testing.v1 import AppTest
-
         at = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         sm.check("UI renders without exceptions", not at.exception, [e.value for e in at.exception])
+        sm.check("dashboard renders the funnel and audit log after sessions",
+                 {"Enrollment funnel", "Eligibility by product", "Audit log"} <= {h.value for h in at.subheader},
+                 [h.value for h in at.subheader])
         sm.check("UI shows four tabs", [t.label for t in at.tabs] ==
                  ["Officer console", "Branch scan", "Approval queue", "Branch dashboard"], [t.label for t in at.tabs])
         mgr = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
