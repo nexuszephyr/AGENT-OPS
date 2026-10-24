@@ -159,6 +159,7 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | POST | `/queue/{item_id}/approve` | `{officer_id}` (**required**) | item (→ `APPROVED`, then mock `SUBMITTED`). **Maker-checker:** `officer_id` must be a `checker` and not the item's `prepared_by`, otherwise **403** and an `approval_denied` audit event; the item is unchanged |
 | POST | `/queue/{item_id}/reject` | `{officer_id, reason}` (both **required**) | item (→ `REJECTED`); triggers agent revision turn (rules-only: no-op, the officer revises). Same maker-checker rule and 403 as approve |
 | POST | `/queue/{item_id}/revise` | `{officer_id, changes, explanation?}` | officer edits a `REJECTED` or `NEEDS_OFFICER` item → back to `PENDING_APPROVAL` (still needs an explicit approve). The revising officer becomes the item's `prepared_by` (whoever last changed the content is its maker), so a different checker must approve it. Unknown `officer_id` → 400. Agent revisions keep the session officer |
+| GET | `/queue/{item_id}/history` | | `ItemHistory`: the item's audit events and what changed since its latest rejection (read-only) |
 | GET | `/queue/{item_id}/pdf` | | PDF file |
 | GET | `/dashboard` | | `DashboardStats` |
 | GET | `/audit` | `?session_id=` | audit rows |
@@ -218,6 +219,18 @@ A tool call and its result are one event (`tone: "running"` until the result lan
 - **urgent:** `AADHAAR_SEEDING_REQUEST` or `EKYC_REQUEST` blocks `PMKISAN_DBT`. The reason names whichever are missing ("Aadhaar not seeded", "eKYC pending", or both joined by " + ") → "PM-KISAN payments will fail".
 - **Ordering (`rank`, 1-based) is lexicographic:** urgent first, then `value_inr_total` desc, then number of opportunities desc, then `customer_id` asc. Urgency always wins, so ₹ values (#36) can't push a failing PM-KISAN credit down the list.
 - **score** is for display only (not used for ordering): Σ `value_inr` (0 if missing) + 1000 × number of opportunities.
+
+`ItemHistory` (built by `queue.history` from `audit_log`):
+```json
+{
+  "item_id": "Q-1A2B3C", "status": "PENDING_APPROVAL", "revision_count": 1,
+  "rejection": {"reason": "Nominee name is Anjali, not Anjeli", "officer_id": "manager-1", "ts": "..."} | null,
+  "diff": [ {"field": "nominee_name", "before": "Anjeli", "after": "Anjali"} ],   // since the latest reject
+  "events": [ {"id": 12, "ts": "...", "event": "queue_create" | "queue_replace" | "reject" | "revise" | "escalate" | "approve"
+               | "approval_denied" | "submit_mock", "actor": "...", ...the audit payload} ]
+}
+```
+`revise` audit events record `before` (the replaced values) next to `changes`, so the diff shows old → new. A `queue_replace` (a pending draft refilled by `fill_form`) after the rejection counts too, so the checker sees every change since the rejection. A field changed back to its old value is left out.
 
 `DashboardStats`:
 ```json

@@ -186,6 +186,12 @@ def revise(item_id: str, body: ReviseIn):
     return {"item": item, "state": sessions.state_view(conn(), item["session_id"])}
 
 
+@app.get("/queue/{item_id}/history")
+def item_history(item_id: str):
+    """What happened to one queue item, and what changed since its latest rejection (issue #19). Read-only."""
+    return _guard(queue.history, conn(), item_id)
+
+
 @app.get("/queue/{item_id}/pdf")
 def pdf(item_id: str):
     item = _guard(queue.get, conn(), item_id)

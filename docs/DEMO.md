@@ -2,6 +2,8 @@
 
 Reset before every run: `python -m app.data.seed --reset`
 
+After pulling new code, reinstall first: `pip install -r requirements.txt` (e.g. `pypdfium2` for the queue's PDF preview; without it the cards say "Preview unavailable" but Approve / Reject still work).
+
 ## 1. Script (about 4 minutes)
 
 **0:00 Hook (20 s)**
@@ -56,4 +58,4 @@ Customers screened, approved vs pending, blocked by seeding, top rejection rules
 ## 4. Backup plan
 
 - Recorded video of the full script (#27).
-- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Customer doesn't know"), click **Prepare all steps** to queue the steps, and fix a rejected form with **Edit and send back for approval** in the queue tab. Reject as Branch Manager, then switch **Acting as → Banking Correspondent** to edit and send it back (it is locked for the Branch Manager), then switch back to approve.
+- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Customer doesn't know"), click **Prepare all steps** to queue the steps, and fix a rejected form with **Edit and send back…** on its card in the queue tab. Reject as Branch Manager, then switch **Acting as → Banking Correspondent** to edit and send it back (it is locked for the Branch Manager), then switch back to approve.

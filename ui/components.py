@@ -245,6 +245,24 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-chip-active {{ background: var(--ys-primary); color: #fff; }}
 .ys-chip-active::before {{ content: "● "; animation: ys-blink 1s ease-in-out infinite; }}
 
+/* approval queue (#19) */
+.ys-group {{ display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; margin: .9rem 0 .35rem; }}
+.ys-group-name {{ font-weight: 700; font-size: 1.08rem; color: var(--ys-ink); }}
+.ys-group-meta {{ color: var(--ys-muted); font-size: .85rem; }}
+.ys-count {{ font-variant-numeric: tabular-nums; }}
+[class*="st-key-ys-escalated-"] {{ border-left: 5px solid {TONE["attention"].fg} !important; }}
+.ys-rejection {{ border-left: 4px solid {TONE["attention"].fg}; background: {TONE["attention"].bg}; border-radius: 6px;
+  padding: .4rem .7rem; margin: .45rem 0; font-size: .9rem; color: var(--ys-ink); }}
+.ys-rejection b {{ color: {TONE["attention"].fg}; }}
+.ys-diff {{ width: 100%; border-collapse: collapse; font-size: .9rem; margin: .2rem 0 .5rem; }}
+.ys-diff caption {{ text-align: left; font-weight: 600; color: var(--ys-ink); padding-bottom: .25rem; }}
+.ys-diff th {{ text-align: left; font-weight: 600; color: var(--ys-muted); font-size: .8rem;
+  border-bottom: 1px solid var(--ys-border); padding: .15rem .4rem; }}
+.ys-diff td {{ padding: .25rem .4rem; border-bottom: 1px solid var(--ys-border); vertical-align: top;
+  overflow-wrap: anywhere; }}
+.ys-diff-before {{ color: {TONE["attention"].fg}; text-decoration: line-through; }}
+.ys-diff-after {{ color: {TONE["positive"].fg}; font-weight: 600; }}
+
 @media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important; animation: none !important; }} }}
 </style>
 """
@@ -320,16 +338,17 @@ def status_style(status: str, palette: Mapping[str, StatusStyle] = STATUS) -> St
     return StatusStyle(status.replace("_", " ").capitalize(), _FALLBACK.icon, _FALLBACK.fg, _FALLBACK.bg, "")
 
 
-def status_badge(status: str, palette: Mapping[str, StatusStyle] = STATUS) -> str:
-    """HTML for one badge: icon + text, never colour alone."""
+def status_badge(status: str, palette: Mapping[str, StatusStyle] = STATUS, count: int | None = None) -> str:
+    """HTML for one badge: icon + text, never colour alone. `count` adds a number (e.g. "Pending approval 3")."""
     s = status_style(status, palette)
+    n = f' <span class="ys-count">{int(count)}</span>' if count is not None else ""
     return (f'<span class="ys-badge" style="color:{s.fg};background:{s.bg}" title="{_e(s.meaning)}">'
             f'<span class="ys-badge-icon" style="background:{s.fg}" aria-hidden="true">{_e(s.icon)}</span>'
-            f'{_e(s.label)}</span>')
+            f'{_e(s.label)}{n}</span>')
 
 
-def queue_badge(status: str) -> str:
-    return status_badge(status, QUEUE_STATUS)
+def queue_badge(status: str, count: int | None = None) -> str:
+    return status_badge(status, QUEUE_STATUS, count)
 
 
 def status_legend() -> None:
@@ -674,3 +693,53 @@ def activity_feed(events: Sequence[Mapping[str, Any]], limit: int | None = 10) -
 
 def _who_label(actor: Any) -> str:
     return {"agent": "The agent", "officer": "The officer"}.get(str(actor), "The system")
+
+
+# --- approval queue (issue #19) ----------------------------------------------------------
+
+def count_badges(counts: Mapping[str, int]) -> str:
+    """'… Pending approval 3' style badges, in queue order. HTML."""
+    order = ["NEEDS_OFFICER", "REJECTED", "REVISED", "PENDING_APPROVAL", "APPROVED", "SUBMITTED"]
+    return " ".join(queue_badge(k, counts[k]) for k in sorted(counts, key=lambda k: order.index(k)
+                                                                if k in order else 99) if counts[k])
+
+
+def queue_group_header(name: str, meta: str, counts: Mapping[str, int]) -> None:
+    """One customer's group in the approval queue: name, id and status counts."""
+    _html(f'<div class="ys-group" role="heading" aria-level="3"><span class="ys-group-name">{_e(name)}</span>'
+          f'<span class="ys-group-meta">{_e(meta)}</span>{count_badges(counts)}</div>')
+
+
+def rejection_note(reason: str, by: str) -> None:
+    _html(f'<div class="ys-rejection"><b>✕ Rejected by {_e(by)}:</b> “{_e(reason)}”</div>')
+
+
+def revision_diff(rows: Sequence[Mapping[str, Any]], label: Any = None) -> None:
+    """What changed since the rejection: field, value at the rejection (struck through), value now."""
+    label = label or (lambda f: str(f).replace("_", " ").capitalize())
+    body = "".join(
+        f'<tr><td>{_e(label(r.get("field")))}</td>'
+        f'<td><span class="ys-diff-before" aria-label="was">{_e("—" if r.get("before") in (None, "") else r["before"])}'
+        f'</span></td><td><span class="ys-diff-after">{_e("—" if r.get("after") in (None, "") else r["after"])}'
+        f"</span></td></tr>" for r in rows)
+    _html('<table class="ys-diff"><caption>What changed since the rejection</caption>'
+          '<thead><tr><th scope="col">Field</th><th scope="col">At rejection</th><th scope="col">Now</th></tr>'
+          f"</thead><tbody>{body}</tbody></table>")
+
+
+def pdf_first_page_png(pdf: bytes, width_px: int = 520) -> tuple[bytes, int]:
+    """(PNG of page 1, page count) for an inline preview. Pure; the caller caches it."""
+    import io
+
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(pdf)
+    try:
+        page = doc[0]
+        scale = width_px / page.get_width()
+        image = page.render(scale=scale).to_pil()
+        buf = io.BytesIO()
+        image.save(buf, format="PNG", optimize=True)
+        return buf.getvalue(), len(doc)
+    finally:
+        doc.close()
