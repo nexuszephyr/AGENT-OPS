@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 
 import requests
@@ -18,6 +19,7 @@ import streamlit as st
 # sys.path.insert). Importing this file as `ui.streamlit_app` would raise ModuleNotFoundError.
 from components import (
     COLORS,
+    activity_feed,
     app_header,
     card_title,
     customer_bar,
@@ -26,6 +28,7 @@ from components import (
     empty_state,
     key_values,
     kpi_tiles,
+    pipeline,
     plan_steps,
     product_grid,
     question_prompt,
@@ -125,6 +128,108 @@ def status_changes(state: dict) -> dict[str, str]:
     return st.session_state.get(f"changed_{sid}", {})
 
 
+# --- live agent turn (issue #18) ---------------------------------------------------------
+# POST /message blocks until the agent's turn ends (tens of seconds with a real LLM). It runs in a background
+# thread instead, so the page can poll GET /timeline every second and show each tool call as it happens.
+# The thread only does HTTP and fills a dict; it never touches Streamlit.
+
+def start_turn(sid: str, text: str) -> None:
+    box: dict = {"done": False, "out": None, "error": None}
+
+    def work() -> None:
+        try:
+            r = requests.post(f"{API}/sessions/{sid}/message", json={"text": text}, timeout=300)
+            if r.status_code < 400:
+                box["out"] = r.json()
+            else:
+                box["error"] = f"The API returned {r.status_code}: {r.text}"
+        except requests.RequestException as e:
+            box["error"] = f"Can't reach the API at {API}: {e}"
+        finally:
+            box["done"] = True
+
+    threading.Thread(target=work, daemon=True, name=f"agent-turn-{sid}").start()
+    st.session_state["turn"] = {"sid": sid, "text": text, "box": box}
+
+
+def turn_running(sid: str) -> bool:
+    t = st.session_state.get("turn")
+    return bool(t and t["sid"] == sid and not t["box"]["done"])
+
+
+def collect_turn(sid: str) -> bool:
+    """If this session's turn has finished, take its result. Returns True when it did."""
+    t = st.session_state.get("turn")
+    if not (t and t["sid"] == sid and t["box"]["done"]):
+        return False
+    st.session_state.pop("turn")
+    if t["box"]["out"]:
+        set_state(t["box"]["out"]["state"])
+    if t["box"]["error"]:
+        st.session_state["turn_error"] = t["box"]["error"]
+    return True
+
+
+def pipeline_notes(state: dict) -> dict[str, str]:
+    """One line per stage, in the officer's terms."""
+    items = state.get("queue_items") or []
+    eligible = sum(r["status"] in ("ELIGIBLE", "ELIGIBLE_BLOCKED") for r in state.get("results") or [])
+    pending = sum(i["status"] == "PENDING_APPROVAL" for i in items)
+    submitted = sum(i["status"] == "SUBMITTED" for i in items)
+    asked = state.get("questions_asked", 0)
+    return {
+        "ingest": f"{state.get('profile', {}).get('name', 'Customer')}: bank record + interview",
+        "decide": f"{eligible} eligible, {asked} question{'s' if asked != 1 else ''} asked",
+        "act": f"{pending} waiting for approval" if pending else f"{len(items)} prepared",
+        "report": f"{submitted} approved and submitted",
+    }
+
+
+def _pipeline_body(sid: str) -> None:
+    t = api("GET", f"/sessions/{sid}/timeline")
+    if not t:
+        return
+    notes = pipeline_notes(st.session_state.get("state") or {})
+    active_tool = None
+    if t["running"]:  # mid-turn: the page state is stale, so count from the live timeline instead
+        events = t["events"]
+        last_msg = max((i for i, e in enumerate(events) if e["kind"] == "message"), default=-1)
+        turn = events[last_msg + 1:]
+        prepared = sum(e["tool"] in ("fill_form", "raise_request") and e["tone"] == "ok" for e in turn)
+        notes["act"] = f"{prepared} prepared in this turn"
+        active_tool = next((e["tool"] for e in reversed(turn) if e["tool"]), None)
+    pipeline(t["stages"], notes, active_tool)
+
+
+@st.fragment(run_every=1.0)
+def pipeline_live(sid: str) -> None:
+    _pipeline_body(sid)
+
+
+def _activity_body(sid: str, running: bool) -> None:
+    t = api("GET", f"/sessions/{sid}/timeline")
+    if not t:
+        return
+    events = t["events"]
+    if running:
+        last_msg = max((i for i, e in enumerate(events) if e["kind"] == "message"), default=-1)
+        calls = sum(e["kind"] == "tool" for e in events[last_msg + 1:])
+        st.info(f"The agent is working: {calls} tool call{'s' if calls != 1 else ''} so far. "
+                "Each one appears below as it happens.", icon=":material/progress_activity:")
+    show_all = len(events) > 10 and st.toggle(f"Show all {len(events)} events", key=f"all_{sid}")
+    if events:
+        activity_feed(events, None if show_all else 10)
+    else:
+        st.caption("Nothing yet.")
+
+
+@st.fragment(run_every=1.0)
+def activity_live(sid: str) -> None:
+    if collect_turn(sid):
+        st.rerun()  # the turn finished: redraw the whole page with the new state
+    _activity_body(sid, running=True)
+
+
 # --- header -----------------------------------------------------------------------
 health = api("GET", "/health") or {}
 officers = {o["officer_id"]: o for o in api("GET", "/officers") or []}
@@ -179,15 +284,24 @@ with tab_console:
                             set_state(new)
                             st.rerun()
     else:
-        state = api("GET", f"/sessions/{state['session_id']}/state") or state
+        collect_turn(state["session_id"])  # a turn that finished between reruns
+        state = api("GET", f"/sessions/{st.session_state['state']['session_id']}/state") or state
         set_state(state)
         sid = state["session_id"]
+        running = turn_running(sid)
+        if err := st.session_state.pop("turn_error", None):
+            st.error(err)
         bar, switch = st.columns([4, 1], vertical_alignment="center")
         with bar:
             customer_bar(state["profile"])
         if switch.button("Change customer", width="stretch"):
             st.session_state.pop("state", None)
             st.rerun()
+        # CGI's pipeline, live: which stage the session is in and which tools the agent used in each.
+        if running:
+            pipeline_live(sid)
+        else:
+            _pipeline_body(sid)
         changed = status_changes(state)
         left, right = st.columns([1, 1.15], gap="large")
 
@@ -219,6 +333,13 @@ with tab_console:
                     if rep.get("to_customer"):
                         customer_bubble(rep["to_customer"].get("lang"), rep["to_customer"].get("text", ""))
                 shown += 1
+            turn = st.session_state.get("turn")
+            if running and turn and not any(m["role"] == "user" and m["content"] == turn["text"]
+                                            for m in state["messages"][-2:]):
+                with st.chat_message("user", avatar=":material/badge:"):  # sent, reply on its way
+                    st.caption("Officer")
+                    st.write(turn["text"])
+                shown += 1
             # The current question, pinned above the input. Works with or without the LLM.
             nq = state["next_question"]["question"]
             if not shown and nq:
@@ -242,7 +363,8 @@ with tab_console:
                             if num is not None:
                                 facts[field] = int(num)
                     b1, b2 = st.columns(2)
-                    if b1.button("Record answer", type="primary", disabled=not facts, width="stretch"):
+                    if b1.button("Record answer", type="primary", disabled=running or not facts,
+                                 width="stretch"):
                         out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": facts, "question_id": nq["question_id"]})
                         if out:
@@ -253,7 +375,7 @@ with tab_console:
                             else:
                                 st.rerun()
                     # Resolves the question with no answer: its products go to VERIFY_MANUALLY.
-                    if b2.button("Customer doesn't know", width="stretch"):
+                    if b2.button("Customer doesn't know", disabled=running, width="stretch"):
                         out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": {}, "question_id": nq["question_id"]})
                         if out:
@@ -263,14 +385,20 @@ with tab_console:
                 st.caption(NO_QUESTION_REASONS.get(state["next_question"]["reason"],
                                                    f"No more questions: {state['next_question']['reason']}."))
 
-            text = st.chat_input("Type what the customer said, or an instruction")
-            if text:
-                out = api("POST", f"/sessions/{sid}/message", json={"text": text})
-                if out:
-                    set_state(out["state"])
-                    st.rerun()
+            text = st.chat_input("The agent is working…" if running else
+                                 "Type what the customer said, or an instruction", disabled=running)
+            if text and not running:
+                start_turn(sid, text)
+                st.rerun()
 
-            section_header("Plan", "In the order the steps must happen. Ticks appear as you approve them.")
+            section_header("Agent activity", "What the agent and the officer did, newest first. "
+                                             "Open an event to see what went in and what came out.")
+            if running:
+                activity_live(sid)
+            else:
+                _activity_body(sid, running=False)
+
+            section_header("Plan", "In the order the steps must happen. Ticks appear as they are approved.")
             steps = plan_steps(state, ACTION_LABELS)
             if steps:
                 stepper(steps)
@@ -285,7 +413,7 @@ with tab_console:
                 st.caption("Nominee and other details per product, as JSON. For example: "
                            '{"PMJJBY": {"nominee_name": "Anjali", "nominee_relation": "daughter"}}')
                 extra_txt = st.text_area("Extra fields", value="{}", height=100)
-                if st.button("Prepare all steps"):
+                if st.button("Prepare all steps", disabled=running):
                     try:
                         extra = json.loads(extra_txt or "{}")
                     except json.JSONDecodeError:

@@ -53,6 +53,8 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `question_prompt(text_en, text_kn)` | The question to ask now, pinned above the chat input |
 | `customer_bubble(lang, text)` | Text the agent wrote for the customer, set apart from what it tells the officer |
 | `plan_steps(state, action_labels)` + `stepper(steps)` | Numbered plan: approved steps ticked first, then each remaining step with its queue state |
+| `pipeline(stages, notes, active_tool)` | CGI's Ingest → Decide → Act → Report from `GET /sessions/{id}/timeline`, with the tools used in each stage; mid-turn the latest tool is highlighted (#18) |
+| `activity_feed(events)` + `event_label(event)` | Newest-first agent activity; each event opens a "why" drawer with what went in and what came out. Guardrail refusals show a shield and "Guardrail:" |
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
 
@@ -69,6 +71,14 @@ The Ramesh walkthrough from `docs/DEMO.md`, in rules-only mode:
 | ![answered](screenshots/console-answered-1366x768.png) | ![approved](screenshots/console-approved-1366x768.png) |
 
 Status changes are announced three ways: the card pulses twice (skipped with reduced motion), the card says "Changed from … to …", and a toast names the product.
+
+## Live agent pipeline (#18)
+
+`POST /message` runs in a background thread; while it runs, the pipeline and the activity feed are Streamlit fragments that poll `GET /sessions/{id}/timeline` every second, so each tool call appears as it happens. The chat input and the answer buttons are disabled until the turn ends, then the whole console redraws with the new state.
+
+| Mid-turn: stage and tools, live | After the turn: the "why" drawer of a guardrail refusal |
+|---|---|
+| ![pipeline](screenshots/pipeline-live-1366x768.png) | ![why](screenshots/activity-why-1366x768.png) |
 
 ## Screenshots
 

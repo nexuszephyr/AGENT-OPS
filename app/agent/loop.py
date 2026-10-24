@@ -43,7 +43,13 @@ def handle_message(conn: sqlite3.Connection, session_id: str, text: str) -> dict
     sessions.get(conn, session_id)  # raises SessionError for an unknown session
     _append(conn, session_id, "user", text)
     audit.log(conn, session_id, "officer", "message", {"text": text})
-    reply = _agent_turn(conn, session_id, text)
+    try:
+        reply = _agent_turn(conn, session_id, text)
+    except Exception as e:
+        # LLM failures already fall back to rules-only inside _agent_turn. Anything else is a bug: record that
+        # the turn ended (the audit trail and the live timeline must not look "running" forever), then re-raise.
+        audit.log(conn, session_id, "system", "error", {"turn_failed": f"{type(e).__name__}: {e}"})
+        raise
     return _finish(conn, session_id, reply)
 
 

@@ -148,6 +148,7 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 | POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation). `officer_id` must be a known officer (400 otherwise); it becomes `prepared_by` on every item the session queues |
 | POST | `/sessions/{id}/message` | `{text, lang?}` | `{reply: AgentReply, state: SessionState}` |
 | GET | `/sessions/{id}/state` | | `SessionState` |
+| GET | `/sessions/{id}/timeline` | | `Timeline`: the session's audit log as UI events grouped by pipeline stage (read-only; safe to poll during an agent turn) |
 | POST | `/sessions/{id}/facts` | `{facts, question_id?}` | `{result, state}`: officer enters facts directly (same validation as `update_profile`; works with no LLM). With `question_id` it resolves that pending question; empty `facts` = "customer doesn't know" → its products go to `VERIFY_MANUALLY` |
 | POST | `/sessions/{id}/act` | `{extra_fields: {PRODUCT_ID: {...}}}` | `{outcomes, state}`: deterministically queues every actionable plan step (rules-only fallback) |
 | GET | `/queue` | `?status=PENDING_APPROVAL` | list of queue items |
@@ -174,6 +175,23 @@ Errors: `MakerCheckerError` → **403**; every other queue/session error → 400
   "messages": [ {"role": "user"|"assistant", "content": "..."} ]
 }
 ```
+
+`Timeline` (built by `app/timeline.py` from `audit_log`; identifiers are already redacted there):
+```json
+{
+  "session_id": "S-001", "state": "ASKING",
+  "stage": "decide",                       // ingest | decide | act | report; follows the agent while a turn runs
+  "running": false,                        // an officer message has no reply yet, or a tool call has no result yet
+  "stages": [ {"id": "ingest", "label": "Ingest", "name": "Data ingestion",
+               "status": "done" | "current" | "upcoming", "events": 3, "tools": {"update_profile": 1}} ],
+  "events": [ {"id": 42, "ts": "...", "stage": "decide", "actor": "agent" | "officer" | "system",
+               "kind": "tool" | "<audit event>", "tool": "check_eligibility" | null,
+               "tone": "ok" | "running" | "guardrail" | "attention",
+               "title": "Rules engine checked 7 products", "summary": "3 eligible, 2 not eligible, ...",
+               "detail": { "args": {...}, "result": {...} } } ]
+}
+```
+A tool call and its result are one event (`tone: "running"` until the result lands). `guardrail` marks a refusal: a tool error, a fact kept from the bank record, the ranker overriding the model's question, or maker-checker blocking an approval (`approval_denied`). An `error` event ends a turn: the LLM fallback ("LLM unavailable") or a bug in the turn ("Agent turn failed", payload `turn_failed`), so `running` never sticks.
 
 `ScanResult` (only customers with ≥ 1 opportunity; ordered as described below):
 ```json

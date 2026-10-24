@@ -80,13 +80,15 @@ Limits (stop rules):
 
 ## Request flow (one officer message)
 
-1. UI → `POST /sessions/{id}/message {text}`
+1. UI → `POST /sessions/{id}/message {text}`, sent from a background thread so the page stays live.
 2. `loop.py` appends the message and calls the LLM with the system prompt, session state and tool schemas.
 3. The LLM calls tools (e.g. `update_profile` → `check_eligibility` → `pick_next_question`).
-4. Each tool result goes back to the LLM; every call is written to `audit_log`.
-5. The LLM returns a structured `AgentReply` (see `docs/PROMPTS.md`).
-6. The API returns the reply + the fresh `SessionState` (product statuses, plan, queue items).
-7. The UI re-renders the status panel.
+4. Each tool result goes back to the LLM; every call is written to `audit_log` as it happens.
+5. Meanwhile the UI polls `GET /sessions/{id}/timeline` every second: `app/timeline.py` turns the audit log into
+   events grouped by pipeline stage (Ingest → Decide → Act → Report), so each tool call appears live (#18).
+6. The LLM returns a structured `AgentReply` (see `docs/PROMPTS.md`).
+7. The API returns the reply + the fresh `SessionState` (product statuses, plan, queue items).
+8. The UI re-renders the whole console.
 
 **Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Customer doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all steps"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
 

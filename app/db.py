@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
+from typing import Any
 
 from app import config
 
@@ -57,11 +59,82 @@ CREATE TABLE IF NOT EXISTS audit_log (
 """
 
 
+class _FetchedCursor(sqlite3.Cursor):
+    """A cursor whose rows were all fetched while the connection lock was held."""
+
+    def __init__(self, conn: sqlite3.Connection, rows: list[Any]):
+        super().__init__(conn)
+        self._rows = rows
+        self._i = 0
+
+    def fetchone(self) -> Any:
+        if self._i >= len(self._rows):
+            return None
+        self._i += 1
+        return self._rows[self._i - 1]
+
+    def fetchall(self) -> list[Any]:
+        rest, self._i = self._rows[self._i:], len(self._rows)
+        return rest
+
+    def fetchmany(self, size: int | None = 1) -> list[Any]:
+        n = size or 1
+        chunk, self._i = self._rows[self._i:self._i + n], min(self._i + n, len(self._rows))
+        return chunk
+
+    def __iter__(self) -> _FetchedCursor:
+        return self
+
+    def __next__(self) -> Any:
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+
+class SerializedConnection(sqlite3.Connection):
+    """The API's one connection, shared by FastAPI's worker threads.
+
+    SQLite itself is thread-safe here, but a Python `sqlite3.Connection` is not safe for concurrent use:
+    two threads interleaving statements on it raise InterfaceError / "another row available", or read
+    each other's rows (cached statements are shared). With the live timeline (#18) polling while an agent
+    turn writes, that would happen every turn. So each call runs *and fetches* under one lock, and callers
+    never hold a live cursor. The lock is per statement, not per request, so the timeline's reads
+    interleave with a long agent turn instead of waiting for it.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._lock = threading.RLock()
+
+    def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+        with self._lock:
+            rows = super().execute(sql, parameters).fetchall()
+            return _FetchedCursor(self, rows)
+
+    def executemany(self, sql: str, parameters: Any, /) -> sqlite3.Cursor:
+        with self._lock:
+            rows = super().executemany(sql, parameters).fetchall()
+            return _FetchedCursor(self, rows)
+
+    def executescript(self, sql_script: str, /) -> sqlite3.Cursor:
+        with self._lock:
+            return super().executescript(sql_script)
+
+    def commit(self) -> None:
+        with self._lock:
+            super().commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            super().rollback()
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or config.DB_PATH
     if path != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, check_same_thread=False, factory=SerializedConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     init_schema(conn)

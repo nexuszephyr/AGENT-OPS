@@ -87,7 +87,8 @@ app/
   audit.py                 audit log helper
   officers.py              officer registry + roles (maker / checker) for maker-checker approval
   scan.py                  branch-wide proactive scan: ranked call list (pure, recommend-only)
-  db.py                    SQLite schema + in-place column migrations
+  timeline.py              audit log → Ingest/Decide/Act/Report timeline for the UI (pure, read-only)
+  db.py                    SQLite schema + in-place column migrations; one connection, serialized per statement
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs
 ui/components.py           shared UI components + status palette (docs/UI.md); theme in .streamlit/config.toml
@@ -101,6 +102,9 @@ tests/
   test_review_fixes.py     regression tests for the PR #2 review
   test_ui_components.py    UI palette ↔ engine statuses, contrast, HTML escaping, theme ↔ tokens
   test_ui_console.py       officer console: plan stepper follows the real queue, new components escape text
+  test_timeline.py         session timeline: stages, folded tool calls, guardrail marks, live "running", redaction
+  test_db_concurrency.py   the shared connection under concurrent agent writes + timeline polls
+  test_scan.py             branch scan: ranking, urgency, totals, recommend-only (no writes), masking
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks
