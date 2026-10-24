@@ -16,7 +16,7 @@ Banks are the delivery channel for India's social-security and direct-benefit-tr
 | **Data ingestion** | Pulls the customer record from a (mock) core-banking DB, then interviews the customer (in their preferred language when the LLM is on) to fill gaps |
 | **Intelligent decision-making** | Deterministic rules engine → eligible / not eligible / unknown per product, with cited rules. Agent picks the most informative next question and plans prerequisites and documents in dependency order |
 | **Action execution** | Pre-fills enrollment PDFs, raises service requests (Aadhaar seeding, eKYC, account opening), builds the customer's document checklist; all queued for officer approval |
-| **Outcome reporting** | Branch dashboard: customers screened, enrollments pending, approved, blocked (with reasons), missing documents; plus a full audit log |
+| **Outcome reporting** | Branch dashboard: ₹ value unlocked and still eligible (indicative cover / annual benefit), customers screened, enrollments pending, approved, blocked (with reasons), missing documents; plus a full audit log |
 
 **Human oversight:** a branch officer approves or rejects every action. If something is rejected, the agent revises it and puts it back in the queue.
 **Maker-checker:** the banking correspondent who prepares an item can't approve it; the branch manager does (enforced in `app/queue.py`).

@@ -98,6 +98,13 @@ def validate_catalog(catalog: dict) -> None:
         for key in ("name", "rules", "source_url", "last_verified"):
             if not p.get(key):
                 errors.append(f"{pid}: missing {key}")
+        # indicative value (#36): an int >= 0, or null for "no single number"; bool is not an int here
+        v = p.get("value_inr", "missing")
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
+            errors.append(f"{pid}: value_inr must be an int >= 0 or null, got {v!r}")
+        basis = p.get("value_basis")
+        if not isinstance(basis, str) or not basis.strip():
+            errors.append(f"{pid}: missing value_basis")
         if p.get("rules"):
             walk(p["rules"], pid)
         for d in p.get("required_docs", []):
@@ -209,6 +216,8 @@ def evaluate(product: dict, profile: dict) -> dict:
         "required_docs": list(product.get("required_docs", [])),
         "source_url": product["source_url"],
         "last_verified": product["last_verified"],
+        "value_inr": product.get("value_inr"),  # indicative cover / annual benefit; None = no single number
+        "value_basis": product.get("value_basis"),
     }
 
     if product["id"] in (profile.get("enrollments") or []):

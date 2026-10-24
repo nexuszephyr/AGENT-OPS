@@ -393,6 +393,8 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
     with st.container(border=True, key=f"ys-card-{pid}"):
         card_title(result.get("name") or pid, pid, status_badge(result["status"]), result.get("benefit") or "",
                    stacked=True, note=note)
+        if result.get("value_inr") is not None:  # null = no single number: show nothing, never ₹0
+            st.caption(f"{format_inr(result['value_inr'])} {result.get('value_basis') or ''} (indicative)")
         failed = result.get("failed_rules") or []
         blocked = result.get("blocked_by") or []
         unknown = result.get("unknown_fields") or []
@@ -409,6 +411,19 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
             verified = result.get("last_verified") or "not yet verified"
             if src:
                 st.caption(f"[Scheme source]({src}) · rules last verified: {verified}")
+
+
+def format_inr(n: int, compact: bool = False) -> str:
+    """₹ with Indian digit grouping ("₹4,12,000"); compact for tiles ("₹18.4 lakh", "₹1.2 crore")."""
+    if compact and n >= 100_000:
+        value, unit = (n / 10_000_000, "crore") if n >= 10_000_000 else (n / 100_000, "lakh")
+        return f"₹{value:.1f}".removesuffix(".0") + f" {unit}"
+    digits = str(int(n))
+    head, tail = digits[:-3], digits[-3:]
+    groups = []
+    while len(head) > 2:  # after the last three digits, Indian grouping is in twos
+        head, groups = head[:-2], [head[-2:], *groups]
+    return "₹" + ",".join([g for g in [head, *groups] if g] + [tail])
 
 
 def kpi_tiles(tiles: Iterable[tuple[str, Any] | tuple[str, Any, bool]]) -> None:

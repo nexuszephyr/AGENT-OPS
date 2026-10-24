@@ -154,3 +154,22 @@ def test_api_customers_segment(client):
     assert len(client.get("/customers", params={"segment": "branch"}).json()) == len(BRANCH_CUSTOMERS)
     assert len(client.get("/customers").json()) == 6 + len(BRANCH_CUSTOMERS)
     assert client.get("/customers", params={"segment": "vip"}).status_code == 422
+
+
+def test_urgent_still_first_with_real_values():
+    """With #36's real ₹ values a non-urgent customer worth more still ranks below an urgent one."""
+    ramesh = next(p for p in build_profiles() if p["customer_id"] == "C001")
+    urgent = {**ramesh, "customer_id": "C998", "age": 55}  # unseeded; too old for PMJJBY / APY
+    rich = {**seed._DEFAULTS, "customer_id": "C997", "name": "Test Farmer", "age": 30, "gender": "F",
+            "occupation": "farmer", "is_landholder": True, "land_acres": 2.0, "grows_notified_crop": True,
+            "in_notified_area": True}  # seeded, eKYC done: not urgent
+    rows = {c["customer_id"]: c for c in scan.scan([rich, urgent])["call_list"]}
+    assert rows["C998"]["urgent"] and not rows["C997"]["urgent"]
+    assert rows["C997"]["value_inr_total"] > rows["C998"]["value_inr_total"] > 0
+    assert rows["C998"]["rank"] == 1 and rows["C997"]["rank"] == 2
+
+
+def test_branch_scan_totals_are_filled_in():
+    out = scan.scan(build_profiles() + build_branch_profiles())
+    assert out["summary"]["value_inr_unclaimed"] > 0
+    assert out["call_list"][0]["urgent"]

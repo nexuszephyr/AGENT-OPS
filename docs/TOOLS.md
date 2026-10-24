@@ -204,14 +204,14 @@ A tool call and its result are one event (`tone: "running"` until the result lan
   "generated_at": "2026-10-24T09:00:00+00:00", "customers_scanned": 36,
   "call_list": [{
     "customer_id": "C001", "name": "Ramesh Gowda", "district": "Mandya", "occupation": "farmer", "segment": "demo",
-    "opportunities": [{"product_id": "PMKISAN_DBT", "status": "ELIGIBLE_BLOCKED", "value_inr": null,
+    "opportunities": [{"product_id": "PMKISAN_DBT", "status": "ELIGIBLE_BLOCKED", "value_inr": 6000,
                        "blocked_by": ["AADHAAR_SEEDING_REQUEST", "EKYC_REQUEST"]}, ...],
     "blockers": [{"action_id": "AADHAAR_SEEDING_REQUEST", "unlocks": ["PMKISAN_DBT"]}, ...],
-    "urgent": true, "rank": 2, "score": 4000, "value_inr_total": 0,
+    "urgent": true, "rank": 2, "score": 422000, "value_inr_total": 418000,
     "reason": "Eligible for PMJJBY, PMSBY, APY, PMKISAN_DBT · Aadhaar not seeded + eKYC pending → PM-KISAN payments will fail"
   }],
   "summary": {"customers_with_opportunities": 34, "opportunities_by_product": {"PMJJBY": 28, ...},
-              "blockers_by_action": {"AADHAAR_SEEDING_REQUEST": 3, ...}, "urgent_count": 4, "value_inr_unclaimed": 0}
+              "blockers_by_action": {"AADHAAR_SEEDING_REQUEST": 3, ...}, "urgent_count": 4, "value_inr_unclaimed": 10846000}
 }
 ```
 - **opportunities:** products `ELIGIBLE` or `ELIGIBLE_BLOCKED` (`ALREADY_ENROLLED`, `NOT_ELIGIBLE`, `UNKNOWN` excluded). `value_inr` comes from the rules result and is `null` until #36 adds it.
@@ -238,8 +238,13 @@ A tool call and its result are one event (`tone: "running"` until the result lan
   "customers_screened": 6,
   "products_eligible": 19,
   "items_pending": 3, "items_approved": 14, "items_rejected": 1,
+  "value_inr_unlocked": 412000, "value_inr_eligible": 1036000,
   "blocked_by_action": {"AADHAAR_SEEDING_REQUEST": 1, "OPEN_SAVINGS_ACCOUNT": 1},
   "not_eligible_reasons": {"R-APY-AGE-MAX": 3, "R-APY-NOT-ITP": 1},
   "top_missing_docs": {"NOMINEE": 5, "RTC": 2}
 }
 ```
+
+₹ values (#36) are **indicative cover / annual benefit** from `products.json` (`value_inr`), never money paid out. Products with `value_inr: null` (no single number: PMJDY, SSY, PMFBY) are skipped, never counted as ₹0.
+- **`value_inr_unlocked`** = Σ `value_inr` over `ENROLLMENT_FORM` items that are `APPROVED` or `SUBMITTED` (so a checker approved them). Service requests carry no value, and each product counts once per customer.
+- **`value_inr_eligible`** = Σ `value_inr` over `ELIGIBLE` + `ELIGIBLE_BLOCKED` products in each screened customer's latest session, excluding `ALREADY_ENROLLED` and anything already counted as unlocked.
