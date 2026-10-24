@@ -26,6 +26,8 @@ from app.agent.tools import ToolBox
 from app.rules import engine
 
 HISTORY_TURNS = 12  # last N messages sent to the model
+RETRY_PROMPT = ("Your last message was not valid AgentReply JSON. Return only valid AgentReply JSON: "
+                "one JSON object, no prose around it, no tool calls.")
 
 
 # --- entry points ------------------------------------------------------------------
@@ -61,9 +63,14 @@ def handle_rejection(conn: sqlite3.Connection, item_id: str) -> dict:
         reply = AgentReply(to_officer=f"{item_id} needs the officer: revision limit reached.",
                            next_step="awaiting_approval", mode="rules_only")
         return _finish(conn, sid, reply)
+    # siblings queued in the same turn often share the mistake (e.g. the nominee's spelling)
+    siblings = [{"item_id": i["item_id"], "product_id": i["product_id"], "payload": i["payload"]}
+                for i in queue.list_items(conn, status=queue.PENDING_APPROVAL, session_id=sid)
+                if i["kind"] == queue.ENROLLMENT_FORM]
     prompt = REVISION_PROMPT.format(
         item_id=item_id, kind=item["kind"], target=item["product_id"] or item["action_id"],
-        reason=item["reject_reason"], payload_json=json.dumps(item["payload"], ensure_ascii=False))
+        reason=item["reject_reason"], payload_json=json.dumps(item["payload"], ensure_ascii=False),
+        siblings_json=json.dumps(siblings, ensure_ascii=False))
     _append(conn, sid, "user", prompt)
     reply = _agent_turn(conn, sid, prompt)
     # a revision turn says nothing about the pending customer question: leave it pending
@@ -124,25 +131,40 @@ def _agent_turn(conn: sqlite3.Connection, session_id: str, latest: str) -> Agent
         history[-1] = {"role": "user", "content": context_block(state) + "\n\n" + history[-1]["content"]}
     else:
         history.append({"role": "user", "content": context_block(state) + "\n\n" + latest})
+    system = system_prompt(state["profile"].get("preferred_language", "en"))
     try:
-        raw = llm.run_tool_loop(system_prompt(state["profile"].get("preferred_language", "en")),
-                                history, TOOL_SCHEMAS, tb.call)
-        audit.log(conn, session_id, "agent", "llm_reply", {"raw": raw})
-        return _parse_reply(raw)
+        raw = llm.run_tool_loop(system, history, TOOL_SCHEMAS, tb.call)
     except llm.LLMError as e:
         audit.log(conn, session_id, "system", "error", {"llm": str(e), "fallback": "rules_only"})
         return rules_only_reply(conn, session_id, note=str(e))
+    audit.log(conn, session_id, "agent", "llm_reply", {"raw": raw})
+    reply = _try_parse(raw)
+    if reply is None:  # one retry, no tools (docs/PROMPTS.md §2), then show the raw text
+        audit.log(conn, session_id, "system", "reply_retry", {"reason": "invalid AgentReply JSON"})
+        retry = history + [{"role": "assistant", "content": raw or "(empty reply)"},
+                           {"role": "user", "content": RETRY_PROMPT}]
+        try:
+            raw2 = llm.run_tool_loop(system, retry, [], tb.call)
+            audit.log(conn, session_id, "agent", "llm_reply", {"raw": raw2, "retry": True})
+            reply = _try_parse(raw2)
+        except llm.LLMError as e:  # the first reply already ran its tools: keep it, don't go rules-only
+            audit.log(conn, session_id, "system", "error", {"llm": str(e), "retry": True})
+    return reply or _parse_reply(raw)
 
 
-def _parse_reply(raw: str) -> AgentReply:
-    m = re.search(r"\{.*\}", raw, re.S)
+def _try_parse(raw: str) -> AgentReply | None:
+    m = re.search(r"\{.*\}", raw or "", re.S)
     if m:
         try:
             return AgentReply.model_validate_json(m.group(0))
         except ValidationError:
             pass
+    return None
+
+
+def _parse_reply(raw: str) -> AgentReply:
     # not valid JSON: show the raw text; statuses still come from the rules engine
-    return AgentReply(to_officer=raw or "(empty reply)")
+    return _try_parse(raw) or AgentReply(to_officer=raw or "(empty reply)")
 
 
 def rules_only_reply(conn: sqlite3.Connection, session_id: str, note: str = "") -> AgentReply:
@@ -176,8 +198,17 @@ def _finish(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> dic
     reply = _vet_question(conn, session_id, reply)
     if reply.question:
         sessions.mark_asked(conn, session_id, reply.question.question_id)
+    reply = _sync_highlights(reply, sessions.results(conn, sessions.get(conn, session_id)))
     _append(conn, session_id, "assistant", reply.model_dump_json())
     return {"reply": reply.model_dump(), "state": sessions.state_view(conn, session_id)}
+
+
+def _sync_highlights(reply: AgentReply, results: list[dict]) -> AgentReply:
+    """Statuses in the reply always equal the engine's FINAL ones (e.g. VERIFY_MANUALLY after "not sure")."""
+    final = {r["product_id"]: r["status"] for r in results}
+    highlights = [h.model_copy(update={"status": final[h.product_id]})
+                  for h in reply.highlights if h.product_id in final]
+    return reply.model_copy(update={"highlights": highlights})
 
 
 def _vet_question(conn: sqlite3.Connection, session_id: str, reply: AgentReply) -> AgentReply:

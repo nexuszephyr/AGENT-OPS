@@ -23,6 +23,7 @@ out: { "profile": <Profile>, "rejected_fields": [ {"field": "...", "reason": "un
   - `conflicts with bank record`: the DB has a non-null value (e.g. DB says `has_savings_account=true`, customer says no) → the agent must tell the officer
   - `set by a completed service request; cannot be changed by conversation`: e.g. `aadhaar_seeded` after the seeding request was approved (system facts are listed under `_system_fields` in the overrides)
   - `conflicts with recorded fact`: an earlier interview fact. Only the **officer** (`/facts` route, actor `officer`) may correct one of these
+- **Officer-only fields:** `grows_notified_crop` and `in_notified_area` (the PMFBY notified-list check) are refused from the agent with `officer must confirm via the fact form`. Only the officer's `/facts` route can set them.
 - `facts` must be an object; anything else is a tool error.
 - `evidence` is required and stored in the audit log.
 
@@ -71,7 +72,8 @@ out: {
     {"order": 1, "type": "SERVICE_REQUEST", "action_id": "AADHAAR_SEEDING_REQUEST",
      "unlocks": ["PMKISAN_DBT"], "why": "Unlocks DBT for PM-KISAN"},
     {"order": 2, "type": "SERVICE_REQUEST", "action_id": "EKYC_REQUEST", "unlocks": ["PMKISAN_DBT"]},
-    {"order": 3, "type": "ENROLLMENT", "product_id": "PMJJBY", "docs_missing": ["NOMINEE","AUTODEBIT_CONSENT"]},
+    {"order": 3, "type": "ENROLLMENT", "product_id": "PMJJBY", "docs_missing": ["NOMINEE","AUTODEBIT_CONSENT"],
+     "missing_mandatory": ["nominee_name", "nominee_relation"]},
     ...
   ],
   "checklist": [ {"doc_id": "RTC", "label": "Land record (RTC / Pahani)", "used_by": ["PMKISAN_DBT","PMFBY"]} ]
@@ -83,6 +85,7 @@ Algorithm (`app/planner/documents.py`):
 3. Then `ELIGIBLE` enrollments ordered by fewest missing docs; then `ELIGIBLE_BLOCKED` enrollments, each placed after its actions.
 4. **Docs on file:** if `has_savings_account`, the bank already holds `AADHAAR`, `PHOTO`, `PASSBOOK`, `MOBILE`. Everything else is "customer to bring".
 5. `checklist` = deduplicated union of missing docs, each with `used_by`.
+6. Every `ENROLLMENT` step has `missing_mandatory`: the extra form fields `fill_form` will still need as `extra_fields` (from `MANDATORY_EXTRA` in `app/forms/fill.py`, passed in by the tool layer so the planner stays pure). The agent calls `fill_form` only once the conversation gives all of them; otherwise it asks the officer for all of them at once.
 
 ### `fill_form`
 ```

@@ -39,6 +39,8 @@ PROFILE_TYPES: dict[str, type | tuple] = {
     "girl_children_under_10": int,
     "existing_ssy_accounts": int,
 }
+# Only the officer may set these (POST /sessions/{id}/facts): the notified-crop list is checked by a human.
+OFFICER_ONLY_FIELDS = {"grows_notified_crop", "in_notified_area"}
 OCCUPATIONS = {"farmer", "salaried", "self_employed", "gig_worker", "homemaker", "student",
                "pensioner", "govt_employee"}
 
@@ -135,6 +137,9 @@ class ToolBox:
             if not ok:
                 rejected.append({"field": fname, "reason": "bad type"})
                 continue
+            if fname in OFFICER_ONLY_FIELDS and self.actor != "officer":
+                rejected.append({"field": fname, "reason": "officer must confirm via the fact form"})
+                continue
             if fname == "occupation" and value not in OCCUPATIONS:
                 rejected.append({"field": fname, "reason": f"occupation must be one of {sorted(OCCUPATIONS)}"})
                 continue
@@ -165,7 +170,7 @@ class ToolBox:
         return out
 
     def plan_actions(self) -> dict:
-        return plan_actions(self._results(), self._profile())
+        return plan_actions(self._results(), self._profile(), mandatory_extra=fill.MANDATORY_EXTRA)
 
     def fill_form(self, product_id: str, extra_fields: dict | None = None) -> dict:
         # Re-run the rules: never trust the model's claim that a product is eligible.

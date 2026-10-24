@@ -9,7 +9,9 @@ def fake_llm(script):
     """script(execute) performs tool calls and returns the final text."""
     def run(system, history, tools, execute, max_calls=8):
         assert "never decide eligibility" in system
-        assert history[0]["role"] == "user" and "SESSION CONTEXT" in history[-1]["content"]
+        assert history[0]["role"] == "user"
+        if tools:  # the JSON-only retry (no tools) ends with the retry instruction instead
+            assert "SESSION CONTEXT" in history[-1]["content"]
         return script(execute)
     return run
 

@@ -14,8 +14,16 @@ def docs_on_file(profile: dict) -> set[str]:
     return set(DOCS_ON_FILE_WITH_ACCOUNT) if profile.get("has_savings_account") else set()
 
 
-def plan_actions(results: list[dict], profile: dict, catalog: dict | None = None) -> dict:
+def plan_actions(results: list[dict], profile: dict, catalog: dict | None = None,
+                 mandatory_extra: dict[str, list[str]] | None = None) -> dict:
+    """`mandatory_extra` (product -> form fields, from app/forms/fill.py via the caller) lets every
+    ENROLLMENT step list `missing_mandatory`: the fields fill_form will still need as extra_fields."""
     catalog = catalog or load_products()
+    mandatory_extra = mandatory_extra or {}
+
+    def missing_mandatory(pid: str) -> list[str]:
+        return [f for f in mandatory_extra.get(pid, []) if profile.get(f) in (None, "")]
+
     doc_labels = catalog["documents"]
     actions = catalog["actions"]
     order_idx = {p["id"]: i for i, p in enumerate(catalog["products"])}
@@ -46,6 +54,7 @@ def plan_actions(results: list[dict], profile: dict, catalog: dict | None = None
                 "type": "ENROLLMENT", "product_id": via, "action_id": a,
                 "unlocks": unlocks[a],
                 "docs_missing": missing_docs(via_res) if via_res else [],
+                "missing_mandatory": missing_mandatory(via),
                 "why": f"{actions[a]['label']}: unlocks {', '.join(unlocks[a])}",
             })
             handled.add(via)
@@ -62,7 +71,8 @@ def plan_actions(results: list[dict], profile: dict, catalog: dict | None = None
     blocked.sort(key=lambda r: order_idx[r["product_id"]])
 
     for r in ready + blocked:
-        step = {"type": "ENROLLMENT", "product_id": r["product_id"], "docs_missing": missing_docs(r)}
+        step = {"type": "ENROLLMENT", "product_id": r["product_id"], "docs_missing": missing_docs(r),
+                "missing_mandatory": missing_mandatory(r["product_id"])}
         if r["status"] == ELIGIBLE_BLOCKED:
             step["after"] = r["blocked_by"]
         steps.append(step)
