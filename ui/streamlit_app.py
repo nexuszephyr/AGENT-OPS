@@ -12,6 +12,9 @@ import os
 
 import requests
 import streamlit as st
+
+# Bare import: `streamlit run ui/streamlit_app.py` puts ui/ on sys.path (tests do the same with
+# sys.path.insert). Importing this file as `ui.streamlit_app` would raise ModuleNotFoundError.
 from components import (
     COLORS,
     app_header,
@@ -25,6 +28,13 @@ from components import (
     setup_page,
     status_legend,
 )
+
+try:  # same as app/config.py: read .env so API_URL and YS_* set there reach the UI too
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # python-dotenv is optional at runtime
+    pass
 
 API = os.getenv("API_URL", "http://localhost:8000")
 OFFICER = os.getenv("YS_OFFICER_ID", "officer-1")
@@ -232,13 +242,21 @@ with tab_queue:
                 if c2.button("Approve", key=f"ok_{i['item_id']}", type="primary", width="stretch"):
                     api("POST", f"/queue/{i['item_id']}/approve", json={"officer_id": OFFICER})
                     st.rerun()
-                reason = c3.text_input("Reason for rejecting", key=f"why_{i['item_id']}",
-                                       placeholder="e.g. Nominee name is Anjali, not Anjeli")
-                if c3.button("Reject", key=f"no_{i['item_id']}", disabled=not reason):
-                    out = api("POST", f"/queue/{i['item_id']}/reject", json={"officer_id": OFFICER, "reason": reason})
-                    if out:
-                        st.info(out["reply"]["to_officer"])
-                    st.rerun()
+                # A form submits the typed reason with the click, so the first click always counts
+                # (a disabled button only enables after the text box blurs). The API also requires a reason.
+                with c3.form(key=f"rej_{i['item_id']}", border=False):
+                    reason = st.text_input("Reason for rejecting", key=f"why_{i['item_id']}",
+                                           placeholder="e.g. Nominee name is Anjali, not Anjeli")
+                    rejected = st.form_submit_button("Reject")
+                if rejected:
+                    if not reason.strip():
+                        st.warning("Type a reason first, so the agent knows what to fix.")
+                    else:
+                        out = api("POST", f"/queue/{i['item_id']}/reject",
+                                  json={"officer_id": OFFICER, "reason": reason})
+                        if out:
+                            st.info(out["reply"]["to_officer"])
+                        st.rerun()
             elif i["status"] in ("REJECTED", "NEEDS_OFFICER"):
                 # Officer fixes it directly (always available; the only path in rules-only mode)
                 with st.expander("Edit and send back for approval",
