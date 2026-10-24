@@ -13,7 +13,7 @@ Banks are the delivery channel for India's social-security and direct-benefit-tr
 
 | CGI stage | Yojana Saathi |
 |---|---|
-| **Data ingestion** | Pulls the customer record from a (mock) core-banking DB, then interviews the customer in Kannada or English to fill gaps |
+| **Data ingestion** | Pulls the customer record from a (mock) core-banking DB, then interviews the customer (in their preferred language when the LLM is on) to fill gaps |
 | **Intelligent decision-making** | Deterministic rules engine → eligible / not eligible / unknown per product, with cited rules. Agent picks the most informative next question and plans prerequisites and documents in dependency order |
 | **Action execution** | Pre-fills enrollment PDFs, raises service requests (Aadhaar seeding, eKYC, account opening), builds the customer's document checklist; all queued for officer approval |
 | **Outcome reporting** | Branch dashboard: customers screened, enrollments pending, approved, blocked (with reasons), missing documents; plus a full audit log |
@@ -75,7 +75,7 @@ Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required c
 | [docs/TOOLS.md](docs/TOOLS.md) | Agent tool contracts and API endpoints |
 | [docs/PROMPTS.md](docs/PROMPTS.md) | LLM system prompt and structured outputs |
 | [docs/RESPONSIBLE_AI.md](docs/RESPONSIBLE_AI.md) | Guardrails, approval gate, privacy |
-| [docs/TASKS.md](docs/TASKS.md) | Build plan and owners |
+| [docs/TASKS.md](docs/TASKS.md) | Sprint snapshot; the GitHub issues and milestones are the plan of record |
 | [docs/DEMO.md](docs/DEMO.md) | Demo script and acceptance tests |
 | [docs/UI.md](docs/UI.md) | UI design system: palette, components, screenshots |
 

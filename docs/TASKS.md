@@ -1,66 +1,65 @@
-# Build plan
+# Plan
 
-Owners: **Om** = rules, agent, planner, API · **Abhinav** = data, forms, UI, dashboard.
-Work on branches `om/*` and `abhinav/*` (or `feat/*`, `ci/*`), and open every PR against `main`. `main` is protected: a PR needs the other person's approval and a green **CI passed** check.
+**The plan of record is the GitHub [issues](https://github.com/nexuszephyr/AGENT-OPS/issues) and [milestones](https://github.com/nexuszephyr/AGENT-OPS/milestones)**, not this page. This page is a snapshot from the 24 Oct re-plan. If they disagree, the issues win.
 
-## Status (23 Oct, evening)
+Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every PR against `main`. `main` is protected: a PR needs the other person's approval and a green **CI passed** check.
 
-Done and on `main`: T0–T13 and T16 (scaffold, rules engine, planner, forms, queue, audit, tools, agent loop, API, UI, `--reset`), plus CI (`.github/workflows/ci.yml`).
+## Sprints (24 Oct)
 
-Still open before the demo:
-- [ ] T1: verify the ⚠ values in REFERENCE.md and set `last_verified` in `products.json` (CI warns while they are `TODO`)
-- [ ] Run one full session against a real LLM key (Anthropic path; OpenAI is untested)
-- [ ] T14: Kannada output (rules-only mode shows English); Sarvam voice is a stretch goal
-- [ ] T15: DEMO.md A8 by hand (A1–A7 are automated in `scripts/smoke.py`)
-- [ ] T17 backup video, T18 slides + rehearsal
+**Sprint 1: Core, features & demo readiness**
 
-## Phase 0: tonight (setup + core logic)
-
-| ID | Task | Owner | Done when |
-|---|---|---|---|
-| T0 | Repo skeleton per AGENTS.md layout, `requirements.txt`, `.env.example`, `.gitignore` (bank.db, .env, out/) | Om | `pytest` runs (0 tests) |
-| T1 | `products.json` from RULES_SPEC §6; verify ⚠ values from REFERENCE.md, fill `last_verified` | Om | file loads, validation passes |
-| T2 | `rules/engine.py`: Kleene evaluator, all-failures reporting, prerequisites, startup validation | Om | all tests in RULES_SPEC §7 pass |
-| T3 | `data/seed.py`: 6 personas from DATA_MODEL §3, all tables created | Abhinav | `python -m app.data.seed` creates bank.db |
-| T4 | `planner/questions.py` + `planner/documents.py` | Om | Ramesh plan starts with seeding; Arjun's next question is `Q_ITP` |
-| T5 | `forms/fill.py`: one reportlab template per product + one per service request, masked fields, "DRAFT – pending officer approval" watermark | Abhinav | PDFs generate for Ramesh and Priya |
-| T6 | `queue.py` + `audit.py` with enforced transitions | Abhinav | `tests/test_queue.py` passes (illegal transitions raise) |
-
-## Phase 1: agent + API
-
-| ID | Task | Owner | Done when |
-|---|---|---|---|
-| T7 | `agent/llm.py`: provider-agnostic chat with tool calling, retries, timeout | Om | a dummy tool call round-trips |
-| T8 | `agent/tools.py` per TOOLS.md, with guardrails inside tools | Om | unit tests: `fill_form` refuses NOT_ELIGIBLE; `raise_request` refuses irrelevant actions |
-| T9 | `agent/loop.py`: state machine, limits, AgentReply parsing, rules-only fallback | Om | Ramesh session runs end to end from the CLI |
-| T10 | `api/main.py`: all routes in TOOLS.md §3 | Om | curl walkthrough works |
-
-## Phase 2: UI + reporting
-
-| ID | Task | Owner | Done when |
-|---|---|---|---|
-| T11 | Streamlit **Officer console**: customer picker, chat, live status panel (colour per status, click → rule + source), plan + checklist | Abhinav | Ramesh demo works in UI |
-| T12 | **Approval queue** tab: list, PDF preview, approve / reject with reason; revision shows up after reject | Abhinav | Priya rejection → revision loop works |
-| T13 | **Dashboard** tab: KPI tiles, blocked-by-action, top rejection rules, top missing docs, audit table | Abhinav | numbers match DB |
-| T14 | Kannada: customer-facing text in `kn`; optional Sarvam STT | Om | Ramesh's question appears in Kannada |
-
-## Phase 3: hardening (event day, by 16:30)
-
-| ID | Task | Owner |
+| Issue | Owner | |
 |---|---|---|
-| T15 | Run DEMO.md acceptance tests A1–A8; fix | both |
-| T16 | Reset script: `python -m app.data.seed --reset` before each demo run | Abhinav |
-| T17 | Record a backup demo video | Abhinav |
-| T18 | Update slides to BFSI framing; rehearse 4-min script twice | Om |
+| #10 Verify every scheme rule against official sources and set `last_verified` | Om | open |
+| #11 Run the agent end to end with a real Claude API key | Om | done |
+| #12 Harden prompts and reply parsing from the real-LLM run | Om | open |
+| #36 ₹ value unlocked: rupee value per product and dashboard tiles | Abhinav | planned |
+| #37 Branch-wide proactive scan: ranked call list of missed benefits (absorbs #14 extra personas) | Om | planned |
+| #39 Maker-checker approval: the preparer can't approve their own enrollment | Om | planned |
+
+**Sprint 2: Beautiful & interactive UI**
+
+| Issue | Owner | |
+|---|---|---|
+| #16 UI design system: theme, typography, colours and layout shell | Abhinav | done |
+| #17 Officer console redesign: customer picker, product cards, chat | Abhinav | open |
+| #18 Live agent pipeline: Ingest → Decide → Act → Report with an activity timeline | Om | open |
+| #19 Approval queue redesign: inline PDF preview, revision diff, one-click actions | Abhinav | open |
+| #21 Branch dashboard redesign: KPI tiles, enrollment funnel, interactive charts | Om | open |
+| #24 UI polish and accessibility pass | Abhinav | open |
+| #26 UI tests: extend the smoke AppTest and publish screenshots from CI | Om | open |
+| #38 Branch scan tab: call list UI with one-click "Start session" | Abhinav | planned |
+
+**Sprint 3: Demo day**
+
+| Issue | Owner | |
+|---|---|---|
+| #27 Record the backup demo video | Abhinav | open |
+| #28 Update the pitch deck to BFSI framing with real screenshots | Om | open |
+| #30 Full dress rehearsal: DEMO.md A1–A8 twice, including the rules-only fallback | both | open |
+
+## Blocked / ready
+
+Each issue lists its blockers. The **Issue dependencies** workflow labels it `status:blocked` while any blocker is open, and switches it to `status:ready` when the last blocker closes. Only pick up `status:ready` issues, and close issues from the PR (`Closes #N`) so their dependents unblock. Details: [CONTRIBUTING.md](../CONTRIBUTING.md#issues-and-sprints).
+
+## Dropped in the re-plan (closed as not planned)
+
+- **#13 Kannada text** for questions, explanations and customer messages. With an LLM key, the agent already writes customer-facing text in the customer's `preferred_language`; rules-only mode stays in English.
+- **#15 Sarvam voice input.** A stretch goal that needed a new external service (Sarvam speech-to-text).
+- **#22 Plan dependency graph.** The console's numbered plan already shows the order (seeding → eKYC → enrollments).
+- **#23 Kannada / English toggle.** It depended on #13, which was dropped.
+
+(#14 extra personas was folded into #37.)
 
 ## Cut order if behind
 
-1. Voice (Sarvam STT)
-2. Kannada output (keep English)
-3. Dashboard charts → plain numbers
-4. Question ranking → fixed catalogue order
+1. #24 UI polish → ship the design-system defaults
+2. #26 CI screenshots → keep the existing smoke AppTest
+3. #21 dashboard charts → plain numbers
+4. #19 queue redesign → keep the current queue
+5. Question ranking → fixed catalogue order
 
-**Never cut:** rules engine, approval gate, planner, audit log.
+**Never cut:** rules engine, approval gate (including maker-checker once #39 is merged), planner, audit log.
 
 ## Dependencies
 

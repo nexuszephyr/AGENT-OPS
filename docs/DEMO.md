@@ -9,7 +9,7 @@ Reset before every run: `python -m app.data.seed --reset`
 
 **0:20 Ramesh, farmer, Kannada (90 s)** *(shows Ingest → Decide → Act)*
 1. Officer picks **C001 Ramesh**. The status panel fills immediately from bank data: PMJJBY, PMSBY, APY ELIGIBLE; PM-KISAN **ELIGIBLE_BLOCKED**; PMFBY UNKNOWN.
-2. The agent asks **one** question in Kannada about the crop. Officer confirms ragi is notified → PMFBY turns ELIGIBLE.
+2. The agent asks **one** question in Kannada about the crop (needs the LLM; in rules-only mode the question is in English). Officer confirms ragi is notified → PMFBY turns ELIGIBLE.
 3. Plan appears: **① Aadhaar seeding → ② eKYC** (unlocks PM-KISAN DBT), then enrollments. Checklist: RTC, sowing declaration, nominee, auto-debit consent.
 4. Items land in the approval queue as PENDING.
 
