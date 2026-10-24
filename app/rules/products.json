@@ -30,6 +30,8 @@
       "name": "Pradhan Mantri Jan Dhan Yojana",
       "category": "account",
       "benefit": "Zero-balance savings account with RuPay card",
+      "value_inr": null,
+      "value_basis": "savings account (no single value)",
       "rules": {
         "all": [
           {
@@ -60,6 +62,8 @@
       "name": "PM Jeevan Jyoti Bima Yojana",
       "category": "insurance",
       "benefit": "₹2 lakh life cover for ₹436 per year",
+      "value_inr": 200000,
+      "value_basis": "life cover",
       "rules": {
         "all": [
           {
@@ -98,6 +102,8 @@
       "name": "PM Suraksha Bima Yojana",
       "category": "insurance",
       "benefit": "₹2 lakh accident cover for ₹20 per year",
+      "value_inr": 200000,
+      "value_basis": "accident cover",
       "rules": {
         "all": [
           {
@@ -136,6 +142,8 @@
       "name": "Atal Pension Yojana",
       "category": "pension",
       "benefit": "Guaranteed pension of ₹1,000–₹5,000 per month from age 60",
+      "value_inr": 12000,
+      "value_basis": "minimum guaranteed pension per year (₹1,000/month)",
       "rules": {
         "all": [
           {
@@ -181,6 +189,8 @@
       "name": "Sukanya Samriddhi Yojana",
       "category": "savings",
       "benefit": "Tax-advantaged savings account for a girl child",
+      "value_inr": null,
+      "value_basis": "depends on deposits",
       "rules": {
         "all": [
           {
@@ -214,6 +224,8 @@
       "name": "PM-KISAN DBT readiness",
       "category": "dbt",
       "benefit": "₹6,000 per year in three instalments to landholding farmer families",
+      "value_inr": 6000,
+      "value_basis": "income support per year",
       "rules": {
         "all": [
           {
@@ -286,6 +298,8 @@
       "name": "PM Fasal Bima Yojana",
       "category": "insurance",
       "benefit": "Crop insurance against natural risks (farmer premium 2% kharif / 1.5% rabi)",
+      "value_inr": null,
+      "value_basis": "depends on sum insured",
       "rules": {
         "all": [
           {

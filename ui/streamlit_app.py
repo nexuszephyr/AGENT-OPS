@@ -30,7 +30,7 @@ from components import (
     empty_state,
     event_time,
     filter_call_list,
-    inr,
+    format_inr,
     key_values,
     kpi_tiles,
     pdf_first_page_png,
@@ -648,15 +648,15 @@ with tab_scan:
         seeding = (summary.get("blockers_by_action") or {}).get("AADHAAR_SEEDING_REQUEST", 0)
         unclaimed = summary.get("value_inr_unclaimed") or 0
         kpi_tiles([
-            ("₹ unclaimed", inr(unclaimed) if unclaimed else "—"),
+            ("₹ unclaimed", format_inr(unclaimed, compact=True) if unclaimed else "—"),
             ("Customers to call", summary["customers_with_opportunities"]),
             ("PM-KISAN payments at risk", summary["urgent_count"], summary["urgent_count"] > 0),
             ("Need Aadhaar seeding", seeding, seeding > 0),
             (f"Top product: {by_product[top]} customers" if top else "Top product", top or "—"),
         ])
-        if not unclaimed:
-            st.caption("₹ shows — until rupee values per scheme are in the rules catalogue (#36). "
-                       "Ranked urgent first (a failing PM-KISAN credit), then by value and number of schemes.")
+        # one line on purpose: keeps rank 1's Start session on screen at 1366x768
+        st.caption("₹ = indicative cover or yearly benefit, not money paid out (schemes with no single value are left "
+                   "out). Ranked urgent first, then by ₹.")
 
         # filters fold away so the top-ranked row is on screen at 1366x768 (#38 done-when: one click)
         # a constant label: a changing one would make Streamlit redraw the expander closed after every pick
@@ -708,6 +708,10 @@ with tab_dash:
             ("Rejected", d["items_rejected"], d["items_rejected"] > 0),
             ("Escalated to officer", d["items_escalated"], d["items_escalated"] > 0),
         ])
+        kpi_tiles([("₹ unlocked", format_inr(d.get("value_inr_unlocked", 0), compact=True)),
+                   ("₹ eligible, not yet enrolled", format_inr(d.get("value_inr_eligible", 0), compact=True))])
+        st.caption("Indicative cover / annual benefit per product (not money paid out). Unlocked so far = every "
+                   "approved enrolment form in this branch's data; products without a single value are left out.")
         if d.get("sessions_by_state"):
             st.caption("Sessions by stage: " + ", ".join(f"{label(s)} {n}" for s, n in d["sessions_by_state"].items()))
         cols = st.columns(3, gap="medium")

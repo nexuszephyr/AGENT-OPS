@@ -36,6 +36,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 ## 1. PMJDY: Jan Dhan account
 
 - **Benefit:** zero-balance basic savings account, RuPay debit card (with accident insurance cover), overdraft facility for eligible account holders.
+- **Indicative value:** none (`value_inr: null`, "savings account (no single value)"). The card's accident cover is a talking point, not counted.
 - **Eligibility (prototype rules):**
   - Does **not** already hold a savings account (`has_savings_account == false`)
   - Age ≥ 10 ⚠ (minors 10+ can open with guardian)
@@ -45,6 +46,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 ## 2. PMJJBY: life cover
 
 - **Benefit:** ₹2,00,000 life cover (death due to any cause) for a premium of **₹436 per year**, auto-debited.
+- **Indicative value:** ₹2,00,000 life cover (`value_inr: 200000`).
 - **Eligibility:**
   - Age **18–50** at enrollment ⚠ (cover continues to 55)
   - Has a savings account
@@ -56,6 +58,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 ## 3. PMSBY: accident cover
 
 - **Benefit:** ₹2,00,000 for accidental death or total permanent disability; ₹1,00,000 for partial permanent disability. Premium **₹20 per year** ⚠.
+- **Indicative value:** ₹2,00,000 accident cover (`value_inr: 200000`).
 - **Eligibility:**
   - Age **18–70** ⚠
   - Has a savings account
@@ -66,6 +69,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 ## 4. APY: Atal Pension Yojana
 
 - **Benefit:** guaranteed monthly pension of ₹1,000–₹5,000 from age 60, depending on contribution; contribution amount depends on joining age.
+- **Indicative value:** ₹12,000 per year, the minimum guaranteed pension (₹1,000/month) (`value_inr: 12000`).
 - **Eligibility:**
   - Age **18–40** ⚠
   - Has a savings account
@@ -77,6 +81,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 ## 5. SSY: Sukanya Samriddhi Yojana
 
 - **Benefit:** high-interest, tax-advantaged savings account for a girl child.
+- **Indicative value:** none (`value_inr: null`): it depends on deposits.
 - **Eligibility:**
   - Customer is parent/guardian of a **girl child below 10 years** ⚠
   - Family has fewer than **2** existing SSY accounts ⚠ (third allowed only for twins/triplets: out of scope, mark UNKNOWN → verify manually)
@@ -88,6 +93,7 @@ How the eligibility bullets map to `products.json`: age, income-tax and similar 
 The bank does not register farmers for PM-KISAN; it makes sure the farmer's account can **receive** the DBT. We model this as "DBT readiness".
 
 - **Benefit:** ₹6,000 per year in three instalments of ₹2,000 to landholding farmer families.
+- **Indicative value:** ₹6,000 income support per year (`value_inr: 6000`).
 - **Eligibility:**
   - Occupation is farmer **and** owns cultivable land (`is_landholder == true`)
   - **Exclusions** ⚠: income-tax payers; serving or retired government employees (except Group D / MTS); pensioners with monthly pension ≥ ₹10,000; registered professionals (doctors, engineers, lawyers, CAs, architects); constitutional post holders; institutional landholders. The prototype rules cover the first four; constitutional post holders and institutional landholders are not modelled (out of scope for branch walk-ins).
@@ -100,6 +106,7 @@ The bank does not register farmers for PM-KISAN; it makes sure the farmer's acco
 ## 7. PMFBY: crop insurance
 
 - **Benefit:** insurance against crop loss from natural risks. Farmer premium ⚠: 2% (kharif), 1.5% (rabi), 5% (commercial/horticulture).
+- **Indicative value:** none (`value_inr: null`): it depends on the sum insured.
 - **Eligibility:**
   - Occupation is farmer (owner, tenant or sharecropper)
   - Grows a **notified crop** in a **notified area** for the current season

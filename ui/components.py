@@ -406,6 +406,8 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
     with st.container(border=True, key=f"ys-card-{pid}"):
         card_title(result.get("name") or pid, pid, status_badge(result["status"]), result.get("benefit") or "",
                    stacked=True, note=note)
+        if line := value_line(result):  # null = no single number: show nothing, never ₹0
+            st.caption(line)
         failed = result.get("failed_rules") or []
         blocked = result.get("blocked_by") or []
         unknown = result.get("unknown_fields") or []
@@ -422,6 +424,31 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
             verified = result.get("last_verified") or "not yet verified"
             if src:
                 st.caption(f"[Scheme source]({src}) · rules last verified: {verified}")
+
+
+def format_inr(n: int, compact: bool = False) -> str:
+    """₹ with Indian digit grouping ("₹4,12,000"); compact for tiles ("₹18.4 lakh", "₹1.2 crore")."""
+    if compact and n >= 100_000:
+        lakh = round(n / 100_000, 1)  # round first, so ₹99.96 lakh becomes ₹1 crore, not "₹100 lakh"
+        value, unit = (round(n / 10_000_000, 1), "crore") if lakh >= 100 else (lakh, "lakh")
+        return f"₹{value:.1f}".removesuffix(".0") + f" {unit}"
+    digits = str(int(n))
+    head, tail = digits[:-3], digits[-3:]
+    groups = []
+    while len(head) > 2:  # after the last three digits, Indian grouping is in twos
+        head, groups = head[:-2], [head[-2:], *groups]
+    return "₹" + ",".join([g for g in [head, *groups] if g] + [tail])
+
+
+# Statuses where a product's value means something for this customer (not NOT_ELIGIBLE, UNKNOWN, VERIFY_MANUALLY).
+VALUE_STATUSES = {"ELIGIBLE", "ELIGIBLE_BLOCKED", "ALREADY_ENROLLED"}
+
+
+def value_line(result: Mapping[str, Any]) -> str | None:
+    """'₹2,00,000 life cover (indicative)', or None when there's no single value or it doesn't apply."""
+    if result.get("value_inr") is None or result.get("status") not in VALUE_STATUSES:
+        return None
+    return f"{format_inr(result['value_inr'])} {result.get('value_basis') or ''} (indicative)"
 
 
 def kpi_tiles(tiles: Iterable[tuple[str, Any] | tuple[str, Any, bool]]) -> None:
@@ -760,25 +787,14 @@ def pdf_first_page_png(pdf: bytes, width_px: int = 520) -> tuple[bytes, int]:
 
 # --- branch scan call list (issue #38) ---------------------------------------------------------
 
-def inr(value: Any) -> str:
-    """₹ with Indian digit grouping (12,34,567); "—" when unknown."""
-    if value is None:
-        return "—"
-    n = int(value)
-    s, sign = str(abs(n)), "-" if n < 0 else ""
-    if len(s) > 3:
-        head, tail = s[:-3], s[-3:]
-        head = ",".join([head[max(0, i - 2):i] for i in range(len(head), 0, -2)][::-1])
-        s = f"{head},{tail}"
-    return f"{sign}₹{s}"
-
-
 def opportunity_chip(o: Mapping[str, Any], product_names: Mapping[str, str] | None = None) -> str:
     """One product the customer could get: ✓ ready, → after a prerequisite. Icon + text."""
     blocked = o.get("status") == "ELIGIBLE_BLOCKED"
     t = STATUS["ELIGIBLE_BLOCKED"] if blocked else STATUS["ELIGIBLE"]
     pid = str(o.get("product_id", ""))
     title = (product_names or {}).get(pid, pid) + (" (needs a prerequisite first)" if blocked else "")
+    if o.get("value_inr"):
+        title += f", {format_inr(o['value_inr'])} indicative"
     return (f'<span class="ys-opp" style="color:{t.fg};background:{t.bg}" title="{_e(title)}">'
             f'<span aria-hidden="true">{_e(t.icon)}</span>{_e(pid)}</span>')
 
@@ -797,8 +813,8 @@ def call_row(c: Mapping[str, Any], product_names: Mapping[str, str] | None = Non
           f'<span class="ys-call-name">{_e(c.get("name"))}</span>'
           f'<span class="ys-call-meta">{_e(c.get("customer_id"))} · {_e(occupation)} · {_e(c.get("district"))}</span>'
           f"{urgent}"
-          + (f'<span class="ys-call-value" title="Value of the schemes they could get">{_e(inr(value))}</span>'
-             if value else "")
+          + (f'<span class="ys-call-value" title="Indicative value of the schemes they could get">'
+             f'{_e(format_inr(value))}</span>' if value else "")
           + "</div>"
           f'<div class="ys-opps">{chips}</div>'
           f'<div class="ys-call-reason">{_e(c.get("reason"))}</div>'

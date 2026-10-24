@@ -43,8 +43,9 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `section_header(title, caption)` | Every section title (native subheader + caption) |
 | `status_badge(status)` / `queue_badge(status)` / `status_legend()` | Any status shown anywhere |
 | `card_title(name, meta, badge_html, detail)` | Title row of any card |
-| `product_card(result)` | One product: badge, benefit, "Why this status" with cited rules and source |
-| `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens |
+| `product_card(result)` | One product: badge, benefit, an indicative value line (`value_line`) when `value_inr` is set and the status is ELIGIBLE, ELIGIBLE_BLOCKED or ALREADY_ENROLLED ("₹2,00,000 life cover (indicative)"; nothing when null or not eligible), "Why this status" with cited rules and source |
+| `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens. The dashboard's "₹ unlocked" / "₹ eligible, not yet enrolled" tiles use it with a caption "indicative cover / annual benefit" |
+| `format_inr(n, compact=False)` | ₹ with Indian grouping ("₹4,12,000"); `compact=True` for tiles ("₹18.4 lakh", "₹1.2 crore") |
 | `key_values(dict)` | Form payloads and profiles instead of raw JSON |
 | `empty_state(title, hint)` | Any empty area: say what to do next |
 | `customer_card(customer, blocked=None)` | One customer in the picker; returns True on "Start session" (#17). `blocked` (a reason) disables the button |
@@ -57,8 +58,8 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `queue_group_header(name, meta, counts)` + `count_badges(counts)` | One customer's group in the approval queue, with status counts; escalations sort first (#19) |
 | `rejection_note(reason, by)` + `revision_diff(rows)` | Why an item came back and what changed since: field, value at the rejection (struck through), value now. Rows come from `GET /queue/{id}/history` |
 | `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "View page" popover; works offline and in any browser |
-| `call_row(row, product_names)` + `opportunity_chip(o)` | One customer on the branch-scan call list: rank, "PM-KISAN at risk" if urgent, ✓/→ chips for what they could get, ₹ value (once #36 adds it), the reason (#38) |
-| `filter_call_list(rows, products, blockers, districts, urgent_only)` + `inr(value)` | Pure filter that keeps the scan's ranking; ₹ with Indian grouping (₹1,23,456) |
+| `call_row(row, product_names)` + `opportunity_chip(o)` | One customer on the branch-scan call list: rank, "PM-KISAN at risk" if urgent, ✓/→ chips for what they could get (the tooltip shows each one's indicative ₹), the row's indicative ₹ total (`format_inr`, hidden when 0), the reason (#38) |
+| `filter_call_list(rows, products, blockers, districts, urgent_only)` | Pure filter for the call list; keeps the scan's ranking |
 | `activity_feed(events)` + `event_label(event)` | Newest-first agent activity; each event opens a "why" drawer with what went in and what came out. Guardrail refusals show a shield and "Guardrail:" |
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
@@ -95,7 +96,7 @@ Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per cu
 
 ## Branch scan (#38)
 
-The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (recommend-only: it queues nothing). Tiles show ₹ unclaimed ("—" until #36 adds rupee values), customers to call, PM-KISAN payments at risk, accounts needing Aadhaar seeding, and the top product. The call list keeps the scan's ranking (urgent first), shows the top 10, and hides the filters (product, blocker, district, urgent only) in a collapsed expander. That keeps rank 1's **Start session** on screen at 1366×768 (checked in Chromium: the button ends at 736px). **Start session** on a row starts the session and switches to the Officer console. The tabs track state (`st.tabs(key="nav", on_change="rerun")`), and the switch is applied through `goto_tab` before the tabs are drawn. For the Branch Manager the buttons are locked, as in the picker (maker-checker).
+The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (recommend-only: it queues nothing). Tiles show ₹ unclaimed (indicative, from #36, compact: "₹1.1 crore"; "—" if no listed customer has a valued scheme), customers to call, PM-KISAN payments at risk, accounts needing Aadhaar seeding, and the top product. The call list keeps the scan's ranking (urgent first), shows the top 10, and hides the filters (product, blocker, district, urgent only) in a collapsed expander. That keeps rank 1's **Start session** on screen at 1366×768 (checked in Chromium: the button ends at 736px). **Start session** on a row starts the session and switches to the Officer console. The tabs track state (`st.tabs(key="nav", on_change="rerun")`), and the switch is applied through `goto_tab` before the tabs are drawn. For the Branch Manager the buttons are locked, as in the picker (maker-checker).
 
 | Call list | Filtered: urgent only | One click later: the console |
 |---|---|---|

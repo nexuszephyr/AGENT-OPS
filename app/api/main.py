@@ -223,6 +223,12 @@ def dashboard():
         "(SELECT MAX(created_at) FROM sessions WHERE customer_id = s.customer_id) GROUP BY customer_id"
     ).fetchall()
     eligible = 0
+    # ₹ value (#36), indicative cover / annual benefit; null values are skipped, never counted as ₹0
+    values = {p["id"]: p.get("value_inr") for p in engine.load_products()["products"]}
+    items = queue.list_items(c)
+    unlocked = {(i["customer_id"], i["product_id"]) for i in items if i["kind"] == queue.ENROLLMENT_FORM
+                and i["status"] in (queue.APPROVED, queue.SUBMITTED)}  # each product once per customer
+    value_eligible = 0
     blocked: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
     docs: Counter[str] = Counter()
@@ -232,13 +238,15 @@ def dashboard():
         s = sessions.get(c, row["session_id"])
         res = sessions.results(c, s)
         eligible += sum(r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED) for r in res)
+        value_eligible += sum(r.get("value_inr") or 0 for r in res
+                              if r["status"] in (engine.ELIGIBLE, engine.ELIGIBLE_BLOCKED)
+                              and (s["customer_id"], r["product_id"]) not in unlocked)
         for r in res:
             blocked.update(r["blocked_by"])
             if r["status"] == engine.NOT_ELIGIBLE:
                 reasons.update(f["id"] for f in r["failed_rules"])
         for d in plan_actions(res, sessions.profile(c, s))["checklist"]:
             docs[d["doc_id"]] += 1
-    items = queue.list_items(c)
     by_status = Counter(i["status"] for i in items)
     return {
         "customers_screened": len(latest),
@@ -247,6 +255,8 @@ def dashboard():
         "items_approved": by_status[queue.APPROVED] + by_status[queue.SUBMITTED],
         "items_rejected": by_status[queue.REJECTED],
         "items_escalated": by_status[queue.NEEDS_OFFICER],
+        "value_inr_unlocked": sum(values.get(pid) or 0 for _, pid in unlocked),
+        "value_inr_eligible": value_eligible,
         "items_by_status": dict(by_status),
         "sessions_by_state": dict(states),
         "blocked_by_action": dict(blocked),
