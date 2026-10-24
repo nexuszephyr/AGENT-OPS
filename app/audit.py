@@ -23,14 +23,22 @@ def log(conn: sqlite3.Connection, session_id: str | None, actor: str, event: str
     conn.commit()
 
 
-def fetch(conn: sqlite3.Connection, session_id: str | None = None, limit: int = 500) -> list[dict]:
-    q = "SELECT id, ts, session_id, actor, event, payload_json FROM audit_log"
-    args: tuple = ()
+def fetch(conn: sqlite3.Connection, session_id: str | None = None, limit: int | None = 500,
+          events: tuple[str, ...] | None = None) -> list[dict]:
+    """Newest first. `events` filters by event name in SQL; `limit=None` returns every matching row."""
+    q = "SELECT id, ts, session_id, actor, event, payload_json FROM audit_log WHERE 1=1"
+    args: list = []
     if session_id:
-        q += " WHERE session_id = ?"
-        args = (session_id,)
-    q += " ORDER BY id DESC LIMIT ?"
-    rows = conn.execute(q, (*args, limit)).fetchall()
+        q += " AND session_id = ?"
+        args.append(session_id)
+    if events:
+        q += f" AND event IN ({', '.join('?' * len(events))})"  # noqa: S608 - placeholders only
+        args.extend(events)
+    q += " ORDER BY id DESC"
+    if limit is not None:
+        q += " LIMIT ?"
+        args.append(limit)
+    rows = conn.execute(q, args).fetchall()
     return [
         {**{k: r[k] for k in ("id", "ts", "session_id", "actor", "event")},
          "payload": json.loads(r["payload_json"]) if r["payload_json"] else None}

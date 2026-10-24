@@ -240,8 +240,9 @@ def history(conn: sqlite3.Connection, item_id: str) -> dict:
     rejection, `after` the value now. Fields revised back to their old value are left out.
     """
     item = get(conn, item_id)
-    rows = sorted((r for r in audit.fetch(conn, session_id=item["session_id"], limit=5000)
-                   if r["event"] in _HISTORY_EVENTS and (r.get("payload") or {}).get("item_id") == item_id),
+    # filtered by event in SQL and unlimited, so a long session can't push the item's first events out
+    rows = sorted((r for r in audit.fetch(conn, session_id=item["session_id"], limit=None, events=_HISTORY_EVENTS)
+                   if (r.get("payload") or {}).get("item_id") == item_id),
                   key=lambda r: r["id"])
     events = [{"id": r["id"], "ts": r["ts"], "event": r["event"], "actor": r["actor"], **(r.get("payload") or {})}
               for r in rows]

@@ -5,6 +5,7 @@ streamlit>=1.66.0
 requests>=2.34.2
 reportlab>=4.0
 pypdfium2>=4.30          # UI: renders page 1 of each queued PDF as an inline preview (#19)
+pillow>=10.0             # used directly by that preview (and its test); don't rely on it arriving transitively
 python-dotenv>=1.0
 httpx>=0.27          # FastAPI TestClient
 pytest>=8.0

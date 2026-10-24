@@ -89,3 +89,15 @@ def test_history_of_other_items_is_not_mixed_in(client):
 
 def test_unknown_item_is_400(client):
     assert client.get("/queue/Q-NOPE/history").status_code == 400
+
+
+def test_a_long_session_keeps_the_items_first_events(client, conn):
+    """PR #45 review: history used to read the newest 5000 audit rows, so a long session lost queue_create."""
+    from app import audit
+
+    sid, item = priya_pmjjby(client)
+    for i in range(5100):  # e.g. a long agent session: many tool calls after the item was created
+        audit.log(conn, sid, "agent", "tool_call", {"tool": "check_eligibility", "args": {"i": i}})
+    client.post(f"/queue/{item}/reject", json={**CHECKER, "reason": "nominee"})
+    h = history(client, item)
+    assert [e["event"] for e in h["events"]] == ["queue_create", "reject"]
