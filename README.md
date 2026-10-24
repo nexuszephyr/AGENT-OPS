@@ -42,7 +42,7 @@ Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required c
 |---|---|
 | Lint & types | ruff (style, bugs, bandit security rules), mypy (strict on `rules/`, `planner/`, `privacy`) |
 | Tests | pytest on Python 3.11 / 3.12 / 3.13, random order, coverage ≥ 80% |
-| Guardrails & docs sync | AGENTS.md rules checked statically (no approve tool for the LLM, pure rules engine, sourced rules, no full Aadhaar, no secrets) + docs ↔ code contracts |
+| Guardrails & docs sync | AGENTS.md rules checked statically (no approve tool for the LLM, no path to `queue.approve` outside the officer routes, pure rules engine, sourced rules, no full Aadhaar, no secrets) + docs ↔ code contracts |
 | End-to-end smoke | boots the real API and UI, walks DEMO.md A1–A7 over HTTP, renders the UI, fails on any server traceback |
 | Dependency audit | pip-audit for known CVEs (also runs weekly) |
 
