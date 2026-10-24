@@ -19,7 +19,7 @@ The officer UI is built from one theme and one set of shared components, so ever
 
 ## Palette
 
-Theme: primary `#1F4E8C` (passbook ink blue), background `#F7F9FB`, surface `#FFFFFF`, secondary `#EAEFF5`, text `#18202C`, muted `#5A6676`, border `#D5DDE8`.
+Theme: primary `#1F4E8C` (passbook ink blue), background `#F8FAFC` (under a fading dot grid), surface `#FFFFFF`, secondary `#EAEFF5`, headings `#0F172A`, body text `#334155` (the theme's `textColor`), muted `#64748B`, border `#E2E8F0` (`#CBD5E1` on hover). The active pipeline step uses `#2563EB` for its border and ring and `#F0F7FF` as its tint; muted grey is only 4.4:1 on that tint, so text inside the active card uses the body colour.
 
 | Status | Icon | Label | Text | Tint |
 |---|---|---|---|---|
@@ -145,6 +145,22 @@ On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a se
 | Approval chain on a queue card | Mercury-style tiles + readable audit log | Prepare all steps without JSON |
 |---|---|---|
 | ![chain](screenshots/polish-queue-chain.png) | ![audit](screenshots/polish-dashboard-audit.png) | ![prepare](screenshots/polish-prepare-form.png) |
+
+## Canvas and micro-motion (#24 follow-up)
+
+**Canvas.** `.stApp` gets the `#F8FAFC` base, a 1px `#CBD5E1` dot grid every 24px, masked by a radial gradient so it fades out toward the bottom and the edges (`.stApp::before`), and a faint top glow: blue at 4.5% top-left, emerald at 4% top-right (`.stApp::after`). Both are `position: fixed`, `pointer-events: none` and sit under `stAppViewContainer` (`z-index: 1`). Every card is white with a `#E2E8F0` hairline and `--ys-shadow` (`0 1px 3px` / `0 1px 2px` slate at 3% / 2%).
+
+**Motion.** Five animations, all in the stylesheet in `ui/components.py`, all switched off by the `prefers-reduced-motion: reduce` rule. Only the live dot loops.
+
+| Animation | What it shows | Attaches to (markup) |
+|---|---|---|
+| Live dot, `ys-breathe` 2.4s ∞ | Something is live right now | `<span class="ys-live-dot">` in `mode_pill` (Agent mode only, not Rules-only) and in `pipeline` for the current step ("Now") |
+| Screening reveal, `ys-reveal` 180ms, 35ms stagger | All 7 schemes screened at once | Product cards (`st.container(key="ys-card-{pid}")`); `product_grid` writes one `animation-delay` per card in a small `<style>`. Replays when the console tab is shown again |
+| Blocker entry, `ys-pill-in` 220ms once | What blocks a scheme | `.ys-fact-blocker` on the ✕ chips in `customer_bar` (e.g. "Aadhaar not seeded", "eKYC pending"), which also get a warm `#EA580C` border at 60% |
+| Hover lift, 150ms, and disclosure, `ys-disclose` 150ms | Cards are clickable; the cited rules open smoothly | Customer cards (`key="ys-cust-{id}"`) and product cards lift 1px with a `#CBD5E1` border; `details[open] > [data-testid=stExpanderDetails]` inside a product card |
+| Bar fill, `ys-bar-fill` 450ms | Outcomes filling up | Every bar (`.mark-rect path`) in the dashboard's Vega charts, scaled from its own left edge (`transform-box: fill-box`). Plays each time the dashboard tab is shown |
+
+Checked in Chromium with `document.getAnimations()`: 7 reveal animations at 0–210ms, 2 blocker entries, 18 bars, 2 live dots, the 1px lift on hover, and none at all under reduced motion. `tests/test_ui_polish.py` pins the tokens' contrast and allows only the live dot (and the running-tool chip from #18) to loop.
 
 ## Screenshots
 

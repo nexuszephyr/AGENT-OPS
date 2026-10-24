@@ -147,7 +147,8 @@ def test_pipeline_marks_stages_and_the_active_tool(monkeypatch):
     ui.pipeline(stages, {"act": "2 prepared in this turn"}, active_tool="fill_form")
     html = out[0]
     assert html.count("ys-stage-done") == 2 and "ys-stage-current" in html and "ys-stage-upcoming" in html
-    assert "✓ Done" in html and "● Now" in html and "○ Next" in html            # icon + text, not colour alone
+    # icon + text, not colour alone; the current step's icon is the breathing live dot (#24 follow-up)
+    assert "✓ Done" in html and '<span class="ys-live-dot" aria-hidden="true"></span>Now' in html and "○ Next" in html
     assert "check_eligibility ×2" in html and 'ys-chip ys-chip-active" title="Used last">fill_form ×3' in html
     assert "raise_request</span>" in html and "2 prepared in this turn" in html
 

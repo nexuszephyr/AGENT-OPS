@@ -58,6 +58,7 @@ def test_readable_truncates_long_values():
 @pytest.mark.parametrize(("field", "text"), [
     ("nominee_name", "Nominee name"), ("customer_id", "Customer ID"), ("llm", "LLM"), ("ekyc_done", "eKYC done"),
     ("girl_child_dob", "Girl child date of birth"), ("pdf_path", "PDF path"), ("session_start", "Session start"),
+    ("ASKING", "Asking"), ("AWAITING_APPROVAL", "Awaiting approval"), ("LLM", "LLM"),  # session stages read as words
 ])
 def test_field_labels_keep_acronyms(field, text):
     assert ui.field_label(field) == text
@@ -166,3 +167,65 @@ def test_timeline_names_the_officer_and_reads_facts_as_text(client):
     facts = next(e for e in events if e.get("tool") == "update_profile")
     assert "Grows notified crop: yes" in facts["summary"] and "In notified area: no" in facts["summary"]
     assert "= true" not in facts["summary"]
+
+
+# --- canvas, contrast and micro-motion (#24 follow-up) ------------------------------------------
+
+def _contrast(a: str, b: str) -> float:
+    def lum(h: str) -> float:
+        r, g, b_ = (int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        f = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b_)]
+        return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_text_tokens_pass_aa_on_every_surface_they_sit_on():
+    c = ui.COLORS
+    for bg in (c["bg"], c["surface"]):
+        assert _contrast(c["heading"], bg) >= 7 and _contrast(c["ink"], bg) >= 7
+        assert _contrast(c["muted"], bg) >= 4.5, bg
+    # the muted grey fails AA on the active step's tint, so the CSS switches text there to the body colour
+    assert _contrast(c["muted"], c["active_bg"]) < 4.5 <= _contrast(c["ink"], c["active_bg"])
+    assert ".ys-stage-current :is(.ys-stage-name, .ys-stage-note) {{ color: var(--ys-ink); }}" in \
+        (ROOT / "ui" / "components.py").read_text(encoding="utf-8")
+    assert _contrast(c["primary"], c["active_bg"]) >= 4.5  # the "Now" text on the tint
+
+
+def test_motion_is_minimal_and_off_under_reduced_motion():
+    css = ui._CSS
+    kill = "@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }"
+    assert kill in css
+    # only the live dot (and the running-tool chip from #18) loop; everything else plays once
+    looping = set(re.findall(r"animation: (ys-[a-z-]+)[^;]*infinite", css))
+    assert looping == {"ys-breathe", "ys-blink"}
+    for name in ("ys-breathe", "ys-reveal", "ys-pill-in", "ys-disclose", "ys-bar-fill"):
+        assert f"@keyframes {name}" in css
+    assert "pointer-events: none" in css.split(".stApp::before, .stApp::after", 1)[1].split("}", 1)[0]
+
+
+def test_live_dot_only_when_something_is_live():
+    assert 'class="ys-live-dot"' in ui.mode_pill(True, "anthropic")
+    assert "ys-live-dot" not in ui.mode_pill(False)
+
+
+def test_only_real_blockers_get_the_warm_entry(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    ui.customer_bar({"name": "R", "has_savings_account": True, "account_no_masked": "XXXXXX4521",
+                     "aadhaar_seeded": False, "ekyc_done": None})
+    html = out[0]
+    assert html.count("ys-fact-blocker") == 1
+    assert "ys-fact-blocker\" style" in html.split("Aadhaar not seeded")[0][-140:]  # on the ✕ chip, not the others
+
+
+def test_product_cards_reveal_in_order_35ms_apart(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    monkeypatch.setattr(ui, "product_card", lambda *a, **k: None)
+    ui.product_grid([{"product_id": p} for p in ("PMJDY", "PMJJBY", "PMSBY", "<x>")])
+    style = out[0]
+    assert ".st-key-ys-card-PMJDY{animation-delay:0ms}" in style
+    assert ".st-key-ys-card-PMJJBY{animation-delay:35ms}" in style
+    assert ".st-key-ys-card-PMSBY{animation-delay:70ms}" in style
+    assert "<x>" not in style  # ids are sanitised before they reach the stylesheet

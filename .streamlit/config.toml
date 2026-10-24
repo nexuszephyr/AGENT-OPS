@@ -13,11 +13,11 @@ toolbarMode = "minimal"   # no Deploy button on the projector
 [theme]
 base = "light"
 primaryColor = "#1F4E8C"              # passbook ink blue: buttons, focus, links
-backgroundColor = "#F7F9FB"
+backgroundColor = "#F8FAFC"
 secondaryBackgroundColor = "#EAEFF5"
-textColor = "#18202C"
+textColor = "#334155"            # body text; headings are #0F172A via CSS
 linkColor = "#1F4E8C"
-borderColor = "#D5DDE8"
+borderColor = "#E2E8F0"
 showWidgetBorder = true
 baseRadius = "0.5rem"
 # One family for both scripts, so Kannada text (#13, #23) matches the English around it.
@@ -25,7 +25,7 @@ font = "Noto Sans, Noto Sans Kannada, sans-serif"
 headingFont = "Noto Sans, Noto Sans Kannada, sans-serif"
 headingFontWeights = [700, 650, 600, 600, 600, 600]
 # Okabe-Ito order: colour-blind safe series colours for every chart
-chartCategoricalColors = ["#1F4E8C", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442", "#5A6676"]
+chartCategoricalColors = ["#1F4E8C", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442", "#64748B"]
 
 [[theme.fontFaces]]
 family = "Noto Sans"

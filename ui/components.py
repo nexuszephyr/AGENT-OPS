@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -23,13 +24,20 @@ import streamlit as st
 # --- tokens -------------------------------------------------------------------------
 
 COLORS = {
-    "ink": "#18202C",        # body text
-    "muted": "#5A6676",      # secondary text (5.5:1 on bg)
+    "heading": "#0F172A",    # headings, names, numbers (17.9:1 on bg)
+    "ink": "#334155",        # body text = the theme's textColor (9.9:1 on bg)
+    "muted": "#64748B",      # secondary text (4.6:1 on bg, 4.8:1 on white; not on the active tint, see CSS)
     "primary": "#1F4E8C",    # passbook ink blue
-    "bg": "#F7F9FB",
+    "bg": "#F8FAFC",         # the institutional canvas under the dot grid
     "surface": "#FFFFFF",
     "surface_alt": "#EAEFF5",
-    "border": "#D5DDE8",
+    "border": "#E2E8F0",
+    "border_hover": "#CBD5E1",  # card hover border, and the canvas dots
+    "active": "#2563EB",     # the active pipeline step's border + focus ring (not text)
+    "active_bg": "#F0F7FF",  # the active pipeline step's tint
+    "glow_blue": "#0284C7",  # top-left ambient glow, used at 4.5% alpha only
+    "glow_green": "#10B981",  # top-right ambient glow, used at 4% alpha only
+    "blocker": "#EA580C",    # blocker chip border, used at low alpha (the text stays the attention tone)
 }
 
 
@@ -90,8 +98,37 @@ def _rgba(hex_color: str, alpha: float) -> str:
 _CSS = f"""
 <style>
 :root {{
-  --ys-ink: {COLORS["ink"]}; --ys-muted: {COLORS["muted"]}; --ys-primary: {COLORS["primary"]};
-  --ys-surface: {COLORS["surface"]}; --ys-surface-alt: {COLORS["surface_alt"]}; --ys-border: {COLORS["border"]};
+  --ys-heading: {COLORS["heading"]}; --ys-ink: {COLORS["ink"]}; --ys-muted: {COLORS["muted"]};
+  --ys-primary: {COLORS["primary"]}; --ys-surface: {COLORS["surface"]}; --ys-surface-alt: {COLORS["surface_alt"]};
+  --ys-border: {COLORS["border"]}; --ys-border-hover: {COLORS["border_hover"]}; --ys-active: {COLORS["active"]};
+  --ys-active-bg: {COLORS["active_bg"]};
+  --ys-shadow: 0 1px 3px {_rgba(COLORS["heading"], .03)}, 0 1px 2px {_rgba(COLORS["heading"], .02)};
+  --ys-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}}
+
+/* institutional canvas: base colour, a micro-dot grid that fades out toward the bottom and edges, and a faint
+   ambient glow behind the header. Decoration only: pointer-events none, under the content. */
+.stApp {{ background-color: {COLORS["bg"]}; }}
+.stApp::before, .stApp::after {{ content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; }}
+.stApp::before {{
+  background-image: radial-gradient(circle, {COLORS["border_hover"]} 1px, transparent 1.25px);
+  background-size: 24px 24px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 0%, black 0%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 65% at 50% 0%, black 0%, transparent 100%);
+}}
+.stApp::after {{
+  background: radial-gradient(ellipse 45% 40% at 0% 0%, {_rgba(COLORS["glow_blue"], .045)}, transparent 70%),
+              radial-gradient(ellipse 45% 40% at 100% 0%, {_rgba(COLORS["glow_green"], .04)}, transparent 70%);
+}}
+[data-testid="stAppViewContainer"] {{ position: relative; z-index: 1; background: transparent; }}
+
+/* type: headings darkest, body text, muted labels (#24 follow-up: the UI looked washed out) */
+h1, h2, h3, h4, [data-testid="stHeading"] {{ color: var(--ys-heading) !important; }}
+
+/* surfaces: every card is white, hairline border, crisp shadow */
+:is([class*="st-key-ys-card-"], [class*="st-key-ys-cust-"], .st-key-ys-question, [class*="st-key-qi-"],
+    [class*="st-key-ys-escalated-"], [class*="st-key-scan-C"], .st-key-audit_record) {{
+  background: var(--ys-surface); border-color: var(--ys-border) !important; box-shadow: var(--ys-shadow);
 }}
 /* layout shell: one content width, tight top, works at 1366x768 and tablet widths */
 [data-testid="stMainBlockContainer"], .block-container {{
@@ -138,7 +175,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
   gap: .3rem; }}
 .ys-card-title {{ display: flex; flex-wrap: wrap; gap: .35rem .75rem; align-items: center;
   justify-content: space-between; }}
-.ys-card-name {{ font-weight: 600; font-size: 1.02rem; color: var(--ys-ink); }}
+.ys-card-name {{ font-weight: 600; font-size: 1.02rem; color: var(--ys-heading); }}
 .ys-card-id {{ color: var(--ys-muted); font-size: .8rem; font-weight: 400; margin-left: .35rem; }}
 .ys-card-benefit {{ color: var(--ys-muted); font-size: .9rem; margin: .25rem 0 0; }}
 
@@ -149,7 +186,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
   padding: .7rem 1rem .75rem; box-shadow: 0 1px 2px {_rgba(COLORS["ink"], .05)}; }}
 .ys-kpi-label {{ display: flex; gap: .35rem; align-items: center; color: var(--ys-muted); font-size: .82rem;
   font-weight: 500; }}
-.ys-kpi-value {{ font-size: 1.85rem; font-weight: 650; line-height: 1.15; color: var(--ys-ink); margin-top: .15rem;
+.ys-kpi-value {{ font-size: 1.85rem; font-weight: 650; line-height: 1.15; color: var(--ys-heading); margin-top: .15rem;
   letter-spacing: -.02em; font-variant-numeric: tabular-nums; }}
 .ys-kpi-attention {{ box-shadow: inset 0 3px 0 {TONE["attention"].fg}; }}
 .ys-kpi-flag {{ display: inline-flex; align-items: center; justify-content: center; width: 1rem; height: 1rem;
@@ -161,7 +198,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 /* empty state */
 .ys-empty {{ border: 1.5px dashed var(--ys-border); border-radius: 8px; padding: 1.25rem 1rem; text-align: center;
   background: var(--ys-surface); }}
-.ys-empty-title {{ font-weight: 600; color: var(--ys-ink); }}
+.ys-empty-title {{ font-weight: 600; color: var(--ys-heading); }}
 .ys-empty-hint {{ color: var(--ys-muted); font-size: .9rem; margin-top: .25rem; }}
 
 /* key/value list (form payloads) */
@@ -174,16 +211,18 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 .ys-legend {{ display: flex; flex-wrap: wrap; gap: .4rem .6rem; margin: .25rem 0 .5rem; }}
 
 /* customer picker + customer bar */
-.ys-cust-name {{ font-weight: 600; font-size: 1.05rem; color: var(--ys-ink); }}
+.ys-cust-name {{ font-weight: 600; font-size: 1.05rem; color: var(--ys-heading); }}
 .ys-cust-meta {{ color: var(--ys-muted); font-size: .9rem; margin: .1rem 0 .35rem; }}
 .ys-lang {{ display: inline-block; padding: .05rem .55rem; border-radius: 999px; background: var(--ys-surface-alt);
   color: var(--ys-ink); font-size: .8rem; font-weight: 600; }}
 .ys-lang[lang="kn"] {{ font-family: "Noto Sans Kannada", sans-serif; }}
 .ys-cbar {{ display: flex; flex-wrap: wrap; gap: .4rem .75rem; align-items: center; }}
-.ys-cbar-name {{ font-weight: 700; font-size: 1.2rem; color: var(--ys-ink); }}
+.ys-cbar-name {{ font-weight: 700; font-size: 1.2rem; color: var(--ys-heading); }}
 .ys-cbar-meta {{ color: var(--ys-muted); font-size: .95rem; }}
 .ys-fact {{ display: inline-flex; gap: .3rem; align-items: center; padding: .08rem .5rem; border-radius: 4px;
   font-size: .82rem; font-weight: 600; border: 1px solid currentColor; white-space: nowrap; }}
+.ys-fact-blocker {{ border-color: {_rgba(COLORS["blocker"], .6)}; box-shadow: 0 0 0 2px {_rgba(COLORS["blocker"], .08)};
+  animation: ys-pill-in 220ms ease-out backwards; }}
 
 /* product grid: columns wrap instead of squeezing on tablet widths */
 .st-key-ys-product-grid [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
@@ -202,7 +241,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 
 /* the question the officer should ask now */
 .ys-ask-label {{ font-size: .85rem; font-weight: 600; color: var(--ys-primary); }}
-.ys-ask-text {{ font-size: 1.15rem; font-weight: 600; color: var(--ys-ink); margin: .1rem 0 .2rem; }}
+.ys-ask-text {{ font-size: 1.15rem; font-weight: 600; color: var(--ys-heading); margin: .1rem 0 .2rem; }}
 .ys-ask-text[lang="kn"] {{ font-family: "Noto Sans Kannada", sans-serif; }}
 
 /* text the agent wrote for the customer, in the customer's language */
@@ -224,7 +263,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 .ys-step-done .ys-step-dot {{ background: {TONE["positive"].fg}; border-color: {TONE["positive"].fg};
   color: #fff !important; }}
 .ys-step-blocked .ys-step-dot {{ border-style: dashed; }}
-.ys-step-title {{ font-weight: 600; color: var(--ys-ink); line-height: 1.3; padding-top: .25rem; }}
+.ys-step-title {{ font-weight: 600; color: var(--ys-heading); line-height: 1.3; padding-top: .25rem; }}
 .ys-step-done .ys-step-title {{ color: var(--ys-muted); }}
 .ys-step-detail {{ color: var(--ys-muted); font-size: .85rem; }}
 .ys-step-state {{ display: inline-block; font-size: .8rem; font-weight: 600; margin-top: .15rem; }}
@@ -234,15 +273,18 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
   margin: .4rem 0 1rem; }}
 @media (max-width: 1100px) {{ .ys-pipe {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
 .ys-stage {{ background: var(--ys-surface); border: 1px solid var(--ys-border); border-radius: 8px;
-  padding: .55rem .75rem; }}
-.ys-stage-current {{ border: 2px solid var(--ys-primary); background: {TONE["info"].bg}; }}
+  padding: .55rem .75rem; box-shadow: var(--ys-shadow); }}
+.ys-stage-current {{ border: 1.5px solid var(--ys-active); background: var(--ys-active-bg);
+  box-shadow: 0 0 0 3px {_rgba(COLORS["active"], .08)}; }}
+/* muted grey is 4.4:1 on the active tint (below AA): text inside the active card uses the body colour */
+.ys-stage-current :is(.ys-stage-name, .ys-stage-note) {{ color: var(--ys-ink); }}
 .ys-stage-head {{ display: flex; gap: .55rem; align-items: center; }}
 .ys-stage-num {{ flex: none; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: flex; align-items: center;
   justify-content: center; font-weight: 700; font-size: .85rem; border: 2px solid currentColor;
   background: var(--ys-surface); }}
 .ys-stage-done .ys-stage-num {{ background: {TONE["positive"].fg}; border-color: {TONE["positive"].fg};
   color: #fff !important; }}
-.ys-stage-label {{ font-weight: 700; color: var(--ys-ink); line-height: 1.2; }}
+.ys-stage-label {{ font-weight: 700; color: var(--ys-heading); line-height: 1.2; }}
 .ys-stage-name {{ color: var(--ys-muted); font-size: .78rem; line-height: 1.2; }}
 .ys-stage-state {{ font-size: .78rem; font-weight: 600; margin-left: auto; white-space: nowrap; }}
 .ys-stage-note {{ color: var(--ys-muted); font-size: .82rem; margin-top: .35rem; }}
@@ -255,7 +297,7 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 
 /* approval queue (#19) */
 .ys-group {{ display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; margin: .9rem 0 .35rem; }}
-.ys-group-name {{ font-weight: 700; font-size: 1.08rem; color: var(--ys-ink); }}
+.ys-group-name {{ font-weight: 700; font-size: 1.08rem; color: var(--ys-heading); }}
 .ys-group-meta {{ color: var(--ys-muted); font-size: .85rem; }}
 .ys-count {{ font-variant-numeric: tabular-nums; }}
 [class*="st-key-ys-escalated-"] {{ border-left: 5px solid {TONE["attention"].fg} !important; }}
@@ -286,13 +328,39 @@ label:has(input[type="radio"]:focus-visible), label:has(input[type="checkbox"]:f
 .ys-rank {{ font-size: 1.35rem; font-weight: 700; color: var(--ys-muted); font-variant-numeric: tabular-nums;
   line-height: 1.6; text-align: right; }}
 .ys-call-head {{ display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }}
-.ys-call-name {{ font-weight: 700; font-size: 1.05rem; color: var(--ys-ink); }}
+.ys-call-name {{ font-weight: 700; font-size: 1.05rem; color: var(--ys-heading); }}
 .ys-call-meta {{ color: var(--ys-muted); font-size: .85rem; }}
 .ys-call-value {{ margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ys-ink); }}
 .ys-call-reason {{ color: var(--ys-muted); font-size: .85rem; margin-top: .2rem; }}
 .ys-opps {{ display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .2rem; }}
 .ys-opp {{ display: inline-flex; gap: .25rem; align-items: center; font-size: .78rem; font-weight: 600;
   padding: .05rem .45rem; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }}
+
+/* --- micro-motion (pitch): five purposeful animations, all off under prefers-reduced-motion (below) ---- */
+/* 1. live indicator: the "Agent mode" dot and the active step's "Now" dot breathe */
+.ys-live-dot {{ display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor;
+  flex: none; margin-right: .3rem; vertical-align: .05em; animation: ys-breathe 2.4s ease-in-out infinite; }}
+@keyframes ys-breathe {{
+  0%, 100% {{ transform: scale(1); box-shadow: 0 0 0 0 currentColor; }}
+  50% {{ transform: scale(1.35); box-shadow: 0 0 0 3px transparent; }}
+}}
+/* 2. screening reveal: the product cards rise in, staggered 35ms (delays set per card by product_grid) */
+[class*="st-key-ys-card-"] {{ animation: ys-reveal 180ms var(--ys-ease-out) backwards; }}
+@keyframes ys-reveal {{ from {{ opacity: 0; transform: translateY(6px); }} to {{ opacity: 1; transform: none; }} }}
+/* 3. blocker chips arrive once (.ys-fact-blocker above) */
+@keyframes ys-pill-in {{ from {{ opacity: 0; transform: scale(.94); }} to {{ opacity: 1; transform: none; }} }}
+/* 4. cards lift a pixel on hover; the "Why this status" citations slide in when opened */
+:is([class*="st-key-ys-card-"], [class*="st-key-ys-cust-"]) {{
+  transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease; }}
+:is([class*="st-key-ys-card-"], [class*="st-key-ys-cust-"]):hover {{
+  border-color: var(--ys-border-hover) !important; transform: translateY(-1px); }}
+[class*="st-key-ys-card-"] details[open] > [data-testid="stExpanderDetails"] {{
+  animation: ys-disclose 150ms ease-out; }}
+@keyframes ys-disclose {{ from {{ opacity: 0; transform: translateY(-4px); }} to {{ opacity: 1; transform: none; }} }}
+/* 5. dashboard bars fill from the left each time the tab is shown (a hidden tab restarts the animation) */
+[data-testid="stVegaLiteChart"] .mark-rect path {{ transform-box: fill-box; transform-origin: left center;
+  animation: ys-bar-fill 450ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }}
+@keyframes ys-bar-fill {{ from {{ transform: scaleX(0); }} to {{ transform: scaleX(1); }} }}
 
 @media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important; animation: none !important; }} }}
 </style>
@@ -321,7 +389,7 @@ def mode_pill(llm_configured: bool, provider: str | None = None) -> str:
         t = TONE["positive"]
         return (f'<span class="ys-pill" style="color:{t.fg};background:{t.bg}" '
                 f'title="The LLM runs the conversation; the rules engine still decides eligibility">'
-                f'<span aria-hidden="true">●</span>{_e(text)}</span>')
+                f'<span class="ys-live-dot" aria-hidden="true"></span>{_e(text)}</span>')
     t = TONE["caution"]
     return (f'<span class="ys-pill" style="color:{t.fg};background:{t.bg}" '
             'title="No LLM: statuses, plan and questions come from the rules engine. '
@@ -490,7 +558,10 @@ _ACRONYMS = {"id": "ID", "llm": "LLM", "pdf": "PDF", "ekyc": "eKYC", "dbt": "DBT
 def field_label(field: Any) -> str:
     """'nominee_name' -> 'Nominee name', 'customer_id' -> 'Customer ID', 'girl_child_dob' -> 'Girl child date of
     birth'."""
-    words = [_ACRONYMS.get(w.lower(), w) for w in str(field).replace("_", " ").split()]
+    text = str(field)
+    if text.isupper():  # an enum constant ("AWAITING_APPROVAL"), not an acronym to keep: read it as words
+        text = text.lower()
+    words = [_ACRONYMS.get(w.lower(), w) for w in text.replace("_", " ").split()]
     if not words:
         return ""
     first = words[0]
@@ -570,7 +641,7 @@ def customer_card(c: Mapping[str, Any], blocked: str | None = None) -> bool:
 
     `blocked` (a reason) disables Start session, e.g. for a checker under maker-checker.
     """
-    with st.container(border=True):
+    with st.container(border=True, key=f"ys-cust-{c['customer_id']}"):  # key: hover lift + white surface (CSS)
         occupation = str(c.get("occupation") or "").replace("_", " ")
         _html(f'<div class="ys-cust-name">{_e(c.get("name"))}</div>'
               f'<div class="ys-cust-meta">{_e(c.get("age"))} · {_e(occupation)} · {_e(c.get("district"))}</div>'
@@ -583,7 +654,8 @@ def _fact(ok: bool | None, yes: str, no: str, unknown: str) -> str:
     tone, icon, text = (("info", "?", unknown) if ok is None else ("positive", "✓", yes) if ok
                         else ("attention", "✕", no))
     t = TONE[tone]
-    return f'<span class="ys-fact" style="color:{t.fg};background:{t.bg}">{icon} {_e(text)}</span>'
+    cls = "ys-fact ys-fact-blocker" if ok is False else "ys-fact"  # a blocker gets the warm border + entry
+    return f'<span class="{cls}" style="color:{t.fg};background:{t.bg}">{icon} {_e(text)}</span>'
 
 
 def customer_bar(profile: Mapping[str, Any]) -> None:
@@ -607,6 +679,10 @@ def product_grid(results: Sequence[Mapping[str, Any]], previous: Mapping[str, st
     """Every product as a card, in rows of `columns`; cards wrap on narrow screens."""
     previous = previous or {}
     with st.container(key="ys-product-grid"):
+        # screening reveal: each card rises in 35ms after the one before it (the keyframes are in the stylesheet)
+        delays = "".join(f".st-key-ys-card-{re.sub(r'[^A-Za-z0-9_-]', '', str(r['product_id']))}"
+                         f"{{animation-delay:{n * 35}ms}}" for n, r in enumerate(results))
+        _html(f"<style>{delays}</style>")
         for start in range(0, len(results), columns):
             cols = st.columns(columns, gap="small")
             for col, r in zip(cols, results[start:start + columns], strict=False):
@@ -753,8 +829,11 @@ def pipeline(stages: Sequence[Mapping[str, Any]], notes: Mapping[str, str] | Non
             f'{"✓" if status == "done" else n}</span>'
             f'<div><div class="ys-stage-label">{_e(s.get("label"))}</div>'
             f'<div class="ys-stage-name">{_e(s.get("name"))}</div></div>'
-            f'<span class="ys-stage-state" style="color:{colour}">{_e(STAGE_STATE_TEXT.get(status, status))}</span>'
-            "</div>"
+            # the current step's dot is a live, breathing dot (CSS); the text stays "Now" (icon + text)
+            + (f'<span class="ys-stage-state" style="color:{colour}"><span class="ys-live-dot" aria-hidden="true">'
+               '</span>Now</span>' if status == "current" else
+               f'<span class="ys-stage-state" style="color:{colour}">{_e(STAGE_STATE_TEXT.get(status, status))}</span>')
+            + "</div>"
             + (f'<div class="ys-stage-note">{_e(note)}</div>' if note else "")
             + (f'<div class="ys-chips">{chips}</div>' if chips else "")
             + "</div>")
