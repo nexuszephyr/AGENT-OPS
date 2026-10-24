@@ -208,7 +208,7 @@ def scenario_b(r: Run) -> None:
     sid = loop.start_session(c, "C002", OFFICER)["session_id"]
     t = r.turn(sc, "B1", sid, lambda: loop.handle_message(
         c, sid, "Priya wants insurance and a pension. Nominee for everything: Anjeli, daughter. "
-                "Daughter Anjali, born 2020-03-14, for SSY."))
+                "SSY for the same daughter Anjeli, born 2020-03-14."))
     apy = next(x for x in sessions.state_view(c, sid)["results"] if x["product_id"] == "APY")
     failed = {f["id"] for f in apy["failed_rules"]}
     r.check(sc, "B1 APY NOT_ELIGIBLE citing R-APY-AGE-MAX + R-APY-NOT-ITP",

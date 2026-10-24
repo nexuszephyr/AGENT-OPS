@@ -16,8 +16,8 @@ Reset before every run: `python -m app.data.seed --reset`
 
 **1:50 Priya, salaried (60 s)** *(shows rules + oversight)*
 1. Switch **Acting as → Banking Correspondent** (only the maker starts sessions; Start session is locked for the Branch Manager). Pick **C002 Priya** → **APY NOT_ELIGIBLE**, click it: "Age must be 40 or below" + "Income-tax payers cannot join APY", with source link.
-2. SSY ELIGIBLE (daughter, 6). The officer gives the details: "Nominee for everything: Anjeli, daughter. Daughter Anjali, born 2020-03-14, for SSY." The forms are generated, including SSY.
-3. The **Branch Manager rejects** the PMJJBY form: "Nominee name spelled wrong, it's Anjali, not Anjeli." The agent revises it and requeues; the Branch Manager approves.
+2. SSY ELIGIBLE (daughter, 6). The officer gives the details, with the same typo everywhere: "Nominee for everything: Anjeli, daughter. SSY for the same daughter Anjeli, born 2020-03-14." The forms are generated, including SSY. (Two different spellings for the one daughter make the agent ask instead of guessing, which is correct, but then there's no typo left to reject in step 3.)
+3. The **Branch Manager rejects** the PMJJBY form: "Nominee name spelled wrong, it's Anjali, not Anjeli." The agent revises it, also corrects the still-pending PMSBY and SSY drafts that share the typo, and requeues; the Branch Manager approves.
 
 **2:50 Dashboard (30 s)** *(shows Report)*
 Customers screened, approved vs pending, blocked by seeding, top rejection rules, top missing docs, audit trail.

@@ -25,6 +25,7 @@ out: { "profile": <Profile>, "rejected_fields": [ {"field": "...", "reason": "un
   - `conflicts with recorded fact`: an earlier interview fact. Only the **officer** (`/facts` route, actor `officer`) may correct one of these
 - **Officer-only fields:** `grows_notified_crop` and `in_notified_area` (the PMFBY notified-list check) are refused from the agent with `officer must confirm via the fact form`. Only the officer's `/facts` route can set them.
 - `facts` must be an object; anything else is a tool error.
+- An agent call with empty `facts` is a tool error (`no facts given…`): it would only burn the tool budget. The officer's `/facts` with empty facts still means "customer doesn't know".
 - `evidence` is required and stored in the audit log.
 
 ### `check_eligibility`

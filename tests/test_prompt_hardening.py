@@ -195,3 +195,14 @@ def test_agent_cannot_confirm_notified_crop(conn):
     assert out["profile"]["grows_notified_crop"] is None
     st = loop.set_facts(conn, sid, {"grows_notified_crop": True, "in_notified_area": True}, "Q_NOTIFIED_CROP")
     assert {r["product_id"]: r["status"] for r in st["state"]["results"]}["PMFBY"] == "ELIGIBLE"
+
+
+# Live run 2 · empty update_profile calls burned the injection turn's budget ---------------------
+
+def test_agent_update_profile_without_facts_is_refused(conn):
+    sid = loop.start_session(conn, "C002", "officer-1")["session_id"]
+    out = ToolBox(conn, sid).call("update_profile", {"facts": {}, "evidence": "none"})
+    assert "no facts given" in out["error"]
+    # the officer's "customer doesn't know" (empty facts) still works
+    st = loop.set_facts(conn, sid, {}, None)
+    assert st["result"]["rejected_fields"] == []

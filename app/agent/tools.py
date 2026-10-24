@@ -118,6 +118,8 @@ class ToolBox:
     def update_profile(self, facts: dict, evidence: str = "") -> dict:
         if not isinstance(facts, dict):
             return {"error": "facts must be an object of field -> value"}
+        if not facts and self.actor != "officer":  # an empty call only burns the tool budget (live run, #12)
+            return {"error": "no facts given: call update_profile only when the customer or officer stated a fact"}
         if not isinstance(evidence, str) or not evidence.strip():
             return {"error": "evidence is required: quote what the customer or officer said"}
         s = self.session
