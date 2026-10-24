@@ -15,7 +15,7 @@ Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every P
 | #12 Harden prompts and reply parsing from the real-LLM run | Om | open |
 | #36 ₹ value unlocked: rupee value per product and dashboard tiles | Abhinav | planned |
 | #37 Branch-wide proactive scan: ranked call list of missed benefits (absorbs #14 extra personas) | Om | planned |
-| #39 Maker-checker approval: the preparer can't approve their own enrollment | Om | planned |
+| #39 Maker-checker approval: the preparer can't approve their own enrollment | Om | done (#41) |
 
 **Sprint 2: Beautiful & interactive UI**
 
@@ -59,7 +59,7 @@ Each issue lists its blockers. The **Issue dependencies** workflow labels it `st
 4. #19 queue redesign → keep the current queue
 5. Question ranking → fixed catalogue order
 
-**Never cut:** rules engine, approval gate (including maker-checker once #39 is merged), planner, audit log.
+**Never cut:** rules engine, approval gate (including maker-checker), planner, audit log.
 
 ## Dependencies
 

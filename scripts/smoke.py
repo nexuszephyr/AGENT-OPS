@@ -159,6 +159,11 @@ def main() -> int:
         at = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         sm.check("UI renders without exceptions", not at.exception, [e.value for e in at.exception])
         sm.check("UI shows three tabs", len(at.tabs) == 3, len(at.tabs))
+        mgr = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
+        mgr.selectbox(key="officer_id").set_value("manager-1").run()
+        starts = [b for b in mgr.button if b.label == "Start session"]
+        sm.check("A9 UI: Start session is locked for the Branch Manager (checker)",
+                 bool(starts) and all(b.disabled for b in starts), len(starts))
         next(b for b in at.button if b.label == "Start session").click().run()
         sm.check("UI 'Start session' renders the product panel without exceptions",
                  not at.exception and any("Products" in s.value for s in at.subheader),

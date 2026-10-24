@@ -55,14 +55,14 @@ def test_steps_tick_as_items_are_approved(client):
     assert {s.state for s in ui.plan_steps(st, ACTIONS) if s.state != "blocked"} == {"pending"}
 
     seeding = next(i for i in st["queue_items"] if i["action_id"] == "AADHAAR_SEEDING_REQUEST")
-    st = client.post(f"/queue/{seeding['item_id']}/approve", json={}).json()["state"]
+    st = client.post(f"/queue/{seeding['item_id']}/approve", json={"officer_id": "manager-1"}).json()["state"]
     steps = ui.plan_steps(st, ACTIONS)
     assert steps[0].title == ACTIONS["AADHAAR_SEEDING_REQUEST"] and steps[0].state == "done"
     assert sum(s.state == "done" for s in steps) == 1  # the approved step is not listed twice
 
     for i in st["queue_items"]:
         if i["status"] == "PENDING_APPROVAL":
-            st = client.post(f"/queue/{i['item_id']}/approve", json={}).json()["state"]
+            st = client.post(f"/queue/{i['item_id']}/approve", json={"officer_id": "manager-1"}).json()["state"]
     steps = ui.plan_steps(st, ACTIONS)
     assert steps and all(s.state in ("done", "todo") for s in steps)
     assert sum(s.state == "done" for s in steps) == 6
@@ -72,7 +72,7 @@ def test_rejected_item_shows_as_rejected(client):
     sid, _ = _ramesh_ready(client)
     st = client.post(f"/sessions/{sid}/act", json={"extra_fields": {"PMJJBY": NOMINEE}}).json()["state"]
     pmjjby = next(i for i in st["queue_items"] if i["product_id"] == "PMJJBY")
-    client.post(f"/queue/{pmjjby['item_id']}/reject", json={"reason": "nominee typo"})
+    client.post(f"/queue/{pmjjby['item_id']}/reject", json={"officer_id": "manager-1", "reason": "nominee typo"})
     st = client.get(f"/sessions/{sid}/state").json()
     assert next(s for s in ui.plan_steps(st, ACTIONS) if s.title.endswith("Jeevan Jyoti Bima Yojana")).state \
         == "rejected"

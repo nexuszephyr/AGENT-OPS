@@ -145,6 +145,11 @@ def officer_name(officer_id: str | None) -> str:
     return officers.get(officer_id or "", {}).get("name", officer_id or "unknown")
 
 
+# A checker who prepares or revises an item becomes its maker, and with one checker nobody could decide it.
+MAKER_ONLY = (None if me["role"] != "checker"
+              else "The Branch Manager approves. Switch \"Acting as\" → Banking Correspondent to do this.")
+
+
 def decide_block(item: dict) -> str | None:
     """Why the current officer can't approve/reject this item (mirrors app/queue.py), or None."""
     if me["role"] != "checker":
@@ -163,10 +168,12 @@ with tab_console:
         customers = api("GET", "/customers") or []
         if not customers:
             empty_state("No customers found", "Seed the demo data with python -m app.data.seed --reset.")
+        if MAKER_ONLY:
+            st.caption(f"🔒 {MAKER_ONLY}")
         for start in range(0, len(customers), 3):
             for col, c in zip(st.columns(3), customers[start:start + 3], strict=False):
                 with col:
-                    if customer_card(c):
+                    if customer_card(c, blocked=MAKER_ONLY):
                         new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER})
                         if new:
                             set_state(new)
@@ -351,8 +358,10 @@ with tab_queue:
                     field = st.selectbox("Field", editable, key=f"rf_{i['item_id']}", format_func=label)
                     value = st.text_input("New value", value=str(i["payload"].get(field) or ""),
                                           key=f"rv_{i['item_id']}_{field}")
-                    st.caption("Saving makes you this item's preparer, so someone else must approve it.")
-                    if st.button("Save and send back", key=f"rs_{i['item_id']}", type="primary"):
+                    st.caption(f"🔒 {MAKER_ONLY}" if MAKER_ONLY else
+                               "Saving makes you this item's preparer, so the Branch Manager must approve it.")
+                    if st.button("Save and send back", key=f"rs_{i['item_id']}", type="primary",
+                                 disabled=bool(MAKER_ONLY), help=MAKER_ONLY):
                         out = api("POST", f"/queue/{i['item_id']}/revise",
                                   json={"officer_id": OFFICER, "changes": {field: value},
                                         "explanation": f"officer corrected {field}"})

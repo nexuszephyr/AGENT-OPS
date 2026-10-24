@@ -47,7 +47,7 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens |
 | `key_values(dict)` | Form payloads and profiles instead of raw JSON |
 | `empty_state(title, hint)` | Any empty area: say what to do next |
-| `customer_card(customer)` | One customer in the picker; returns True on "Start session" (#17) |
+| `customer_card(customer, blocked=None)` | One customer in the picker; returns True on "Start session" (#17). `blocked` (a reason) disables the button |
 | `customer_bar(profile)` | Who is being served, plus the account / Aadhaar seeding / eKYC facts that block schemes |
 | `product_grid(results, previous, action_labels)` | All products as cards; a card whose status changed pulses and says "Changed from … to …" |
 | `question_prompt(text_en, text_kn)` | The question to ask now, pinned above the chat input |
@@ -56,7 +56,7 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 
 Header settings (env, optional): `YS_OFFICER_ID` (initial "Acting as" officer), `YS_BRANCH`.
 
-**Acting as** (header): pick Banking Correspondent (maker) or Branch Manager (checker) from `GET /officers`. Queue cards show "Prepared by …". Approve / Reject are disabled, with a caption and tooltip saying why, when the current officer is a maker or prepared the item (maker-checker, enforced in `app/queue.py`).
+**Acting as** (header): pick Banking Correspondent (maker) or Branch Manager (checker) from `GET /officers`. Queue cards show "Prepared by …". Approve / Reject are disabled, with a caption and tooltip saying why, when the current officer is a maker or prepared the item (maker-checker, enforced in `app/queue.py`). For the Branch Manager, **Start session** and **Save and send back** are locked too: whoever prepares or revises an item becomes its maker, and with a single checker nobody could then decide it.
 
 ## Officer console (#17)
 

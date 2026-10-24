@@ -28,6 +28,7 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 
 - We don't claim the rules are complete or legally authoritative. They are simplified, sourced and dated; production would sync them from official notifications.
 - We don't claim the agent is always correct. That's why the officer approves every action.
+- We don't claim maker-checker is access control: `officer_id` is self-asserted in this prototype; in production it would come from the bank's SSO session.
 - We don't connect to real CBS, UIDAI, PM-KISAN or PMFBY systems. Those are mocked, and the interfaces are designed so they could be swapped in.
 
 ## 4. Failure cases we test

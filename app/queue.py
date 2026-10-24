@@ -210,13 +210,11 @@ def revise(conn: sqlite3.Connection, item_id: str, changes: dict, explanation: s
     after this succeeds (see agent.tools.revise_and_render). An officer revision
     makes that officer the item's maker (prepared_by); an agent revision keeps it.
     """
+    if actor == "officer" and officers.get_officer(officer_id) is None:
+        raise QueueError(f"unknown officer {officer_id}")
     item = get(conn, item_id)
     payload = validate_revision(item, changes, actor)
-    prepared_by = item.get("prepared_by")
-    if actor == "officer":
-        if officers.get_officer(officer_id) is None:
-            raise QueueError(f"unknown officer {officer_id}")
-        prepared_by = officer_id
+    prepared_by = officer_id if actor == "officer" else item.get("prepared_by")
     conn.execute(
         "UPDATE queue_items SET payload_json = ?, revision_count = revision_count + 1, prepared_by = ? "
         "WHERE item_id = ?",
