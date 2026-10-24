@@ -43,7 +43,7 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `section_header(title, caption)` | Every section title (native subheader + caption) |
 | `status_badge(status)` / `queue_badge(status)` / `status_legend()` | Any status shown anywhere |
 | `card_title(name, meta, badge_html, detail)` | Title row of any card |
-| `product_card(result)` | One product: badge, benefit, an indicative value line when `value_inr` is set ("₹2,00,000 life cover (indicative)"; nothing when null), "Why this status" with cited rules and source |
+| `product_card(result)` | One product: badge, benefit, an indicative value line (`value_line`) when `value_inr` is set and the status is ELIGIBLE, ELIGIBLE_BLOCKED or ALREADY_ENROLLED ("₹2,00,000 life cover (indicative)"; nothing when null or not eligible), "Why this status" with cited rules and source |
 | `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens. The dashboard's "₹ unlocked" / "₹ eligible, not yet enrolled" tiles use it with a caption "indicative cover / annual benefit" |
 | `format_inr(n, compact=False)` | ₹ with Indian grouping ("₹4,12,000"); `compact=True` for tiles ("₹18.4 lakh", "₹1.2 crore") |
 | `key_values(dict)` | Form payloads and profiles instead of raw JSON |

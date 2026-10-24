@@ -214,7 +214,7 @@ A tool call and its result are one event (`tone: "running"` until the result lan
               "blockers_by_action": {"AADHAAR_SEEDING_REQUEST": 3, ...}, "urgent_count": 4, "value_inr_unclaimed": 10846000}
 }
 ```
-- **opportunities:** products `ELIGIBLE` or `ELIGIBLE_BLOCKED` (`ALREADY_ENROLLED`, `NOT_ELIGIBLE`, `UNKNOWN` excluded). `value_inr` comes from the rules result and is `null` until #36 adds it.
+- **opportunities:** products `ELIGIBLE` or `ELIGIBLE_BLOCKED` (`ALREADY_ENROLLED`, `NOT_ELIGIBLE`, `UNKNOWN` excluded). `value_inr` comes from the rules result (`null` for products with no single value: PMJDY, SSY, PMFBY).
 - **blockers:** the plan's prerequisite actions, with the products each unlocks.
 - **urgent:** `AADHAAR_SEEDING_REQUEST` or `EKYC_REQUEST` blocks `PMKISAN_DBT`. The reason names whichever are missing ("Aadhaar not seeded", "eKYC pending", or both joined by " + ") → "PM-KISAN payments will fail".
 - **Ordering (`rank`, 1-based) is lexicographic:** urgent first, then `value_inr_total` desc, then number of opportunities desc, then `customer_id` asc. Urgency always wins, so ₹ values (#36) can't push a failing PM-KISAN credit down the list.

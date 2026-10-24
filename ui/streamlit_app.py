@@ -617,8 +617,8 @@ with tab_dash:
         ])
         kpi_tiles([("₹ unlocked", format_inr(d.get("value_inr_unlocked", 0), compact=True)),
                    ("₹ eligible, not yet enrolled", format_inr(d.get("value_inr_eligible", 0), compact=True))])
-        st.caption("Indicative cover / annual benefit per product (not money paid out). "
-                   "Unlocked = approved enrolment forms; products without a single value are left out.")
+        st.caption("Indicative cover / annual benefit per product (not money paid out). Unlocked so far = every "
+                   "approved enrolment form in this branch's data; products without a single value are left out.")
         if d.get("sessions_by_state"):
             st.caption("Sessions by stage: " + ", ".join(f"{label(s)} {n}" for s, n in d["sessions_by_state"].items()))
         cols = st.columns(3, gap="medium")

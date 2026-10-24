@@ -125,6 +125,20 @@ def test_value_unlocked_only_by_a_checker_approving_an_enrollment(client):
     (0, "₹0", "₹0"), (999, "₹999", "₹999"), (1000, "₹1,000", "₹1,000"),
     (100_000, "₹1,00,000", "₹1 lakh"), (1_840_000, "₹18,40,000", "₹18.4 lakh"),
     (12_000_000, "₹1,20,00,000", "₹1.2 crore"), (412_000, "₹4,12,000", "₹4.1 lakh"),
+    (9_996_000, "₹99,96,000", "₹1 crore"),  # rounds into the next unit, not "₹100 lakh"
 ])
 def test_format_inr(n, full, compact):
     assert ui.format_inr(n) == full and ui.format_inr(n, compact=True) == compact
+
+
+@pytest.mark.parametrize("status, shown", [
+    ("ELIGIBLE", True), ("ELIGIBLE_BLOCKED", True), ("ALREADY_ENROLLED", True),
+    ("NOT_ELIGIBLE", False), ("UNKNOWN", False), ("VERIFY_MANUALLY", False),
+])
+def test_value_line_only_where_the_value_applies(status, shown):
+    """Priya's APY (NOT_ELIGIBLE) must not read as "she gets ₹12,000" (review on #47)."""
+    apy = {"status": status, "value_inr": 12_000, "value_basis": "minimum guaranteed pension per year"}
+    line = ui.value_line(apy)
+    assert (line == "₹12,000 minimum guaranteed pension per year (indicative)") if shown else line is None
+    assert ui.value_line({**apy, "value_inr": None}) is None  # no single value: nothing, never ₹0
+    assert set(engine.ALL_STATUSES) >= ui.VALUE_STATUSES

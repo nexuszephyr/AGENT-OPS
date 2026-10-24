@@ -393,8 +393,8 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
     with st.container(border=True, key=f"ys-card-{pid}"):
         card_title(result.get("name") or pid, pid, status_badge(result["status"]), result.get("benefit") or "",
                    stacked=True, note=note)
-        if result.get("value_inr") is not None:  # null = no single number: show nothing, never ₹0
-            st.caption(f"{format_inr(result['value_inr'])} {result.get('value_basis') or ''} (indicative)")
+        if line := value_line(result):  # null = no single number: show nothing, never ₹0
+            st.caption(line)
         failed = result.get("failed_rules") or []
         blocked = result.get("blocked_by") or []
         unknown = result.get("unknown_fields") or []
@@ -416,7 +416,8 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
 def format_inr(n: int, compact: bool = False) -> str:
     """₹ with Indian digit grouping ("₹4,12,000"); compact for tiles ("₹18.4 lakh", "₹1.2 crore")."""
     if compact and n >= 100_000:
-        value, unit = (n / 10_000_000, "crore") if n >= 10_000_000 else (n / 100_000, "lakh")
+        lakh = round(n / 100_000, 1)  # round first, so ₹99.96 lakh becomes ₹1 crore, not "₹100 lakh"
+        value, unit = (round(n / 10_000_000, 1), "crore") if lakh >= 100 else (lakh, "lakh")
         return f"₹{value:.1f}".removesuffix(".0") + f" {unit}"
     digits = str(int(n))
     head, tail = digits[:-3], digits[-3:]
@@ -424,6 +425,17 @@ def format_inr(n: int, compact: bool = False) -> str:
     while len(head) > 2:  # after the last three digits, Indian grouping is in twos
         head, groups = head[:-2], [head[-2:], *groups]
     return "₹" + ",".join([g for g in [head, *groups] if g] + [tail])
+
+
+# Statuses where a product's value means something for this customer (not NOT_ELIGIBLE, UNKNOWN, VERIFY_MANUALLY).
+VALUE_STATUSES = {"ELIGIBLE", "ELIGIBLE_BLOCKED", "ALREADY_ENROLLED"}
+
+
+def value_line(result: Mapping[str, Any]) -> str | None:
+    """'₹2,00,000 life cover (indicative)', or None when there's no single value or it doesn't apply."""
+    if result.get("value_inr") is None or result.get("status") not in VALUE_STATUSES:
+        return None
+    return f"{format_inr(result['value_inr'])} {result.get('value_basis') or ''} (indicative)"
 
 
 def kpi_tiles(tiles: Iterable[tuple[str, Any] | tuple[str, Any, bool]]) -> None:
