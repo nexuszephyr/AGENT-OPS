@@ -11,12 +11,8 @@ from datetime import UTC, datetime
 from app.planner.documents import plan_actions
 from app.rules.engine import ELIGIBLE, ELIGIBLE_BLOCKED, evaluate_all, load_products
 
-URGENT_BONUS = 100_000  # a failing PM-KISAN credit outranks any single enrollment
-PER_OPPORTUNITY = 1_000  # keeps the ranking useful before value_inr exists (#36)
-URGENT_ACTIONS = {
-    "AADHAAR_SEEDING_REQUEST": "Aadhaar not seeded → PM-KISAN payments will fail",
-    "EKYC_REQUEST": "eKYC pending → PM-KISAN payments will fail",
-}
+PER_OPPORTUNITY = 1_000  # display score only; the ranking is rank_key()
+URGENT_ACTIONS = {"AADHAAR_SEEDING_REQUEST": "Aadhaar not seeded", "EKYC_REQUEST": "eKYC pending"}
 BLOCKER_NOTES = {
     "AADHAAR_SEEDING_REQUEST": "not Aadhaar-seeded",
     "EKYC_REQUEST": "eKYC pending",
@@ -36,7 +32,7 @@ def _customer(profile: dict, catalog: dict) -> dict:
     urgent_by = [a for a in URGENT_ACTIONS
                  if pmkisan and pmkisan["status"] == ELIGIBLE_BLOCKED and a in pmkisan["blocked_by"]]
     value = sum(o["value_inr"] or 0 for o in opportunities)
-    notes = [URGENT_ACTIONS[urgent_by[0]]] if urgent_by else []
+    notes = [" + ".join(URGENT_ACTIONS[a] for a in urgent_by) + " → PM-KISAN payments will fail"] if urgent_by else []
     notes += [BLOCKER_NOTES.get(b["action_id"], b["action_id"]) for b in blockers
               if not urgent_by or b["action_id"] not in URGENT_ACTIONS]
     reason = " · ".join([f"Eligible for {', '.join(o['product_id'] for o in opportunities)}", *notes])
@@ -44,16 +40,23 @@ def _customer(profile: dict, catalog: dict) -> dict:
         "customer_id": profile["customer_id"], "name": profile.get("name"), "district": profile.get("district"),
         "occupation": profile.get("occupation"), "segment": profile.get("segment"),
         "opportunities": opportunities, "blockers": blockers, "urgent": bool(urgent_by),
-        "score": value + (URGENT_BONUS if urgent_by else 0) + PER_OPPORTUNITY * len(opportunities),
+        "score": value + PER_OPPORTUNITY * len(opportunities),
         "value_inr_total": value, "reason": reason,
     }
+
+
+def rank_key(c: dict) -> tuple:
+    """Urgent first (a failing PM-KISAN credit beats any ₹ value), then ₹ value, breadth, id."""
+    return (not c["urgent"], -c["value_inr_total"], -len(c["opportunities"]), c["customer_id"])
 
 
 def scan(profiles: list[dict], catalog: dict | None = None) -> dict:
     """Rank customers with at least one ELIGIBLE / ELIGIBLE_BLOCKED product not yet held."""
     catalog = catalog or load_products()
     rows = [c for c in (_customer(p, catalog) for p in profiles) if c["opportunities"]]
-    rows.sort(key=lambda c: (-c["score"], c["customer_id"]))
+    rows.sort(key=rank_key)
+    for i, c in enumerate(rows, 1):
+        c["rank"] = i
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "customers_scanned": len(profiles),

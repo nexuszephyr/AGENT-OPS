@@ -98,11 +98,15 @@ def build_profiles() -> list[dict]:
 
 # --- branch customers (issue #37): a realistic book for the proactive scan ----------------------
 
-_FIRST = {"M": ["Manjunath", "Basavaraj", "Shivakumar", "Nagaraj", "Mahesh", "Prakash", "Girish", "Siddappa",
-                "Venkatesh", "Irfan", "Santosh", "Chandrashekar"],
-          "F": ["Lakshmi", "Geetha", "Savitha", "Kavya", "Shobha", "Rekha", "Pushpa", "Nethra", "Ayesha",
-                "Sunanda", "Bhagya", "Divya"]}
-_LAST = ["Gowda", "Hegde", "Naik", "Patil", "Shetty", "Reddy", "Kumar", "Rao", "Murthy", "Swamy", "Khan", "Bhat"]
+# Coherent synthetic full names (first + family name from the same community), by gender.
+_NAMES = {
+    "M": ["Manjunath Gowda", "Basavaraj Patil", "Shivakumar Hiremath", "Nagaraj Naik", "Mahesh Shetty",
+          "Prakash Hegde", "Girish Kulkarni", "Siddappa Kambar", "Venkatesh Reddy", "Mohammed Irfan",
+          "Santosh Poojary", "Chandrashekar Murthy", "Raghavendra Bhat", "Joseph D'Souza", "Imran Pasha"],
+    "F": ["Lakshmi Devi", "Geetha Shetty", "Savitha Gowda", "Kavya Hegde", "Shobha Patil", "Rekha Naik",
+          "Pushpa Kulkarni", "Nethra Bhat", "Ayesha Banu", "Sunanda Reddy", "Bhagyamma", "Divya Rao",
+          "Mary Fernandes", "Shabana Begum", "Roopa Swamy"],
+}
 _DISTRICTS = ["Mandya", "Mysuru", "Hassan", "Tumakuru", "Chikkamagaluru", "Belagavi", "Dharwad", "Ballari",
               "Kolar", "Shivamogga", "Udupi", "Raichur"]
 # 30 slots: 12 farmers (40%), then the rest of the branch
@@ -120,12 +124,21 @@ def _branch_customers() -> list[dict]:
     rng = random.Random(42)  # noqa: S311 - synthetic data, not crypto: same book on every reset
     occupations = list(_OCCUPATIONS)
     rng.shuffle(occupations)
+    # names get their own Random(42), so the other fields don't depend on the name pools
+    name_rng = random.Random(42)  # noqa: S311 - synthetic data, not crypto
+    names = {g: name_rng.sample(pool, len(pool)) for g, pool in _NAMES.items()}  # 30 names, 30 customers
     out, farmers_seen = [], 0
     for n, occ in enumerate(occupations):
         gender = "F" if occ == "homemaker" else rng.choice("MF")
+        if not names[gender]:  # that pool is used up: the name decides the gender
+            gender = "M" if gender == "F" else "F"
         age = rng.randint(*_AGES[occ])
+        # shortcut: two spent draws keep the sequence of the old first/last-name picks, so every other
+        # field (ages, flags, enrollments) is unchanged; drop them if the branch book is ever regenerated
+        rng.choice(range(12))
+        rng.choice(range(12))
         c: dict = {
-            "customer_id": f"C{101 + n}", "name": f"{rng.choice(_FIRST[gender])} {rng.choice(_LAST)}",
+            "customer_id": f"C{101 + n}", "name": names[gender].pop(),
             "age": age, "gender": gender, "district": rng.choice(_DISTRICTS), "occupation": occ,
             "preferred_language": "kn" if rng.random() < 0.6 else "en",
             "aadhaar_masked": _masked(rng, "XXXX-XXXX-"), "mobile_masked": _masked(rng, "XXXXXX"),

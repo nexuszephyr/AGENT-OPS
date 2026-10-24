@@ -1,15 +1,18 @@
 """Branch-wide proactive scan (issue #37): recommends only, ranks deterministically."""
+import json
 import re
 from collections import Counter
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app import scan
+from app import db, scan, sessions
 from app.agent.tools import PROFILE_TYPES
 from app.api import main
+from app.data import seed
 from app.data.seed import BRANCH_CUSTOMERS, build_branch_profiles, build_profiles
 from app.privacy import find_full_ids
+from app.rules import engine
 
 
 @pytest.fixture
@@ -28,8 +31,9 @@ def _row(result, cid):
 def test_personas_ramesh_urgent_and_first():
     out = scan.scan(build_profiles())
     top = out["call_list"][0]
-    assert top["customer_id"] == "C001" and top["urgent"]
-    assert "PM-KISAN payments will fail" in top["reason"]
+    assert top["customer_id"] == "C001" and top["urgent"] and top["rank"] == 1
+    # both prerequisites are missing for Ramesh, so the reason names both
+    assert top["reason"].endswith("Aadhaar not seeded + eKYC pending → PM-KISAN payments will fail")
     assert out["customers_scanned"] == 6
 
 
@@ -44,12 +48,38 @@ def test_scan_is_deterministic():
     assert scan.scan(profiles)["call_list"] == scan.scan(profiles)["call_list"]
 
 
-def test_ranked_by_score_then_id():
+def test_ranked_urgent_first_then_value_breadth_id():
     rows = scan.scan(build_profiles() + build_branch_profiles())["call_list"]
-    assert rows == sorted(rows, key=lambda c: (-c["score"], c["customer_id"]))
+    key = [(not c["urgent"], -c["value_inr_total"], -len(c["opportunities"]), c["customer_id"]) for c in rows]
+    assert key == sorted(key) and [c["rank"] for c in rows] == list(range(1, len(rows) + 1))
     assert all(c["opportunities"] for c in rows)
-    for c in rows:  # the formula, before #36 adds value_inr
-        assert c["score"] == c["value_inr_total"] + 100_000 * c["urgent"] + 1_000 * len(c["opportunities"])
+    for c in rows:  # display score only, not used for ordering
+        assert c["score"] == c["value_inr_total"] + 1_000 * len(c["opportunities"])
+
+
+def test_single_blocker_reason_keeps_its_wording():
+    rows = {c["customer_id"]: c for c in scan.scan(build_branch_profiles())["call_list"]}
+    one = [c for c in rows.values() if c["urgent"] and len([b for b in c["blockers"]
+                                                          if b["action_id"] in scan.URGENT_ACTIONS]) == 1]
+    assert one and all("+" not in c["reason"] and "→ PM-KISAN payments will fail" in c["reason"] for c in one)
+
+
+def test_urgency_beats_more_and_pricier_opportunities(monkeypatch):
+    """Once #36 adds ₹ values (₹2 lakh per insurance), urgency must still win."""
+    def priced(profile, catalog=None):
+        return [{**r, "value_inr": 200_000} for r in engine.evaluate_all(profile, catalog)]
+
+    monkeypatch.setattr(scan, "evaluate_all", priced)
+    ramesh = next(p for p in build_profiles() if p["customer_id"] == "C001")  # urgent, 4 opportunities
+    rich = {**seed._DEFAULTS, "customer_id": "C999", "name": "Test Farmer", "age": 30, "gender": "F",
+            "occupation": "farmer", "is_landholder": True, "land_acres": 2.0, "grows_notified_crop": True,
+            "in_notified_area": True, "girl_children_under_10": 1}  # not urgent, 6 opportunities
+    rows = scan.scan([rich, ramesh])["call_list"]
+    by_id = {c["customer_id"]: c for c in rows}
+    assert not by_id["C999"]["urgent"] and by_id["C001"]["urgent"]
+    assert by_id["C999"]["value_inr_total"] > by_id["C001"]["value_inr_total"]
+    assert len(by_id["C999"]["opportunities"]) > len(by_id["C001"]["opportunities"])
+    assert [c["customer_id"] for c in rows] == ["C001", "C999"]
 
 
 def test_summary_totals_match_call_list():
@@ -91,6 +121,23 @@ def test_scan_only_recommends(client, conn):
     runs = conn.execute("SELECT actor, session_id, payload_json FROM audit_log WHERE event = 'scan_run'").fetchall()
     assert len(runs) == 1 and runs[0]["actor"] == "agent" and runs[0]["session_id"] is None
     assert "C001" not in runs[0]["payload_json"]  # summary only, no per-customer data
+
+
+def test_scan_records_who_asked(client, conn):
+    assert client.post("/scan", json={"officer_id": "bc-9"}).status_code == 400
+    assert client.post("/scan", json={"officer_id": "officer-1"}).status_code == 200
+    row = conn.execute("SELECT payload_json FROM audit_log WHERE event = 'scan_run'").fetchone()
+    assert '"officer_id": "officer-1"' in row["payload_json"]
+
+
+def test_db_seeded_before_segment_still_splits_demo_and_branch(tmp_path):
+    c = db.connect(str(tmp_path / "old.db"))
+    for p in build_profiles() + build_branch_profiles():  # rows without the `segment` key
+        c.execute("INSERT INTO customers (customer_id, profile_json) VALUES (?, ?)",
+                  (p["customer_id"], json.dumps(p)))
+    assert [r["customer_id"] for r in sessions.list_customers(c, "demo")] == [f"C00{n}" for n in range(1, 7)]
+    assert len(sessions.list_customers(c, "branch")) == len(BRANCH_CUSTOMERS)
+    c.close()
 
 
 def test_api_latest_scan(client):

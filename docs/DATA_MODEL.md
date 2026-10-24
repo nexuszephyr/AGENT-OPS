@@ -130,8 +130,9 @@ Use `C001` and `C002` in the main demo; keep the others for judges' questions.
 ### Branch customers (C101–C130)
 
 A synthetic branch book for the proactive scan (`POST /scan`): `BRANCH_CUSTOMERS` / `build_branch_profiles()`
-in `app/data/seed.py`, generated deterministically with `random.Random(42)` from small pools of plausible
-names and Karnataka districts, so every reset produces the same 30 customers. They are documented as a group,
+in `app/data/seed.py`, generated deterministically with `random.Random(42)`. Names come from a fixed list of 30
+coherent synthetic Karnataka full names (first and family name from the same community, by gender),
+districts from a small Karnataka pool, so every reset produces the same 30 customers. They are documented as a group,
 not row by row (the docs-sync check compares the persona table above with `PERSONAS` only).
 
 - **Mix:** 12 farmers (40%), 6 salaried, 4 gig workers, 4 homemakers, 4 self-employed; ages 19–68.

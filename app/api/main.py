@@ -49,6 +49,10 @@ class SessionIn(BaseModel):
     officer_id: str = "officer-1"
 
 
+class ScanIn(BaseModel):
+    officer_id: str | None = None  # who asked, for the audit trail (optional)
+
+
 class MessageIn(BaseModel):
     text: str
     lang: str | None = None
@@ -106,11 +110,15 @@ def customers(segment: Literal["demo", "branch"] | None = None):
 
 
 @app.post("/scan")
-def run_scan():
+def run_scan(body: ScanIn | None = None):
     """Branch-wide proactive scan. Recommends only: creates no queue items, changes no customer or session."""
     global _latest_scan
+    officer_id = body.officer_id if body else None
+    if officer_id is not None and officers.get_officer(officer_id) is None:
+        raise HTTPException(status_code=400, detail=f"unknown officer {officer_id}")
     _latest_scan = scan.scan(sessions.customer_profiles(conn()))
-    audit.log(conn(), None, "agent", "scan_run", _latest_scan["summary"])  # summary only, no per-customer data
+    # summary only, no per-customer data
+    audit.log(conn(), None, "agent", "scan_run", {"officer_id": officer_id, **_latest_scan["summary"]})
     return _latest_scan
 
 
