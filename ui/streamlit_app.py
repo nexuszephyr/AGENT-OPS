@@ -65,9 +65,13 @@ QUESTION_FACT_INPUTS = {
     "Q_AGE": [("age", "int")],
 }
 # Human labels for prerequisite actions, read from the same catalogue the rules engine uses.
-_CATALOG = json.loads((Path(__file__).resolve().parent.parent / "app" / "rules" / "products.json")
-                      .read_text(encoding="utf-8"))
-ACTION_LABELS: dict[str, str] = {k: v["label"] for k, v in _CATALOG["actions"].items()}
+# Optional: if the UI runs without the repo next to it, steps and blockers fall back to the raw action id.
+try:
+    _CATALOG = json.loads((Path(__file__).resolve().parent.parent / "app" / "rules" / "products.json")
+                          .read_text(encoding="utf-8"))
+    ACTION_LABELS: dict[str, str] = {k: v["label"] for k, v in _CATALOG["actions"].items()}
+except (OSError, ValueError, KeyError):
+    ACTION_LABELS = {}
 # Why there is no question to ask, in the officer's words (reasons come from app/planner/questions.py).
 NO_QUESTION_REASONS = {
     "no resolvable unknowns": "No more questions: every answer the rules need is in.",

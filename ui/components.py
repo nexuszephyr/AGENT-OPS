@@ -68,7 +68,23 @@ QUEUE_STATUS: dict[str, StatusStyle] = {
     "SUBMITTED": StatusStyle("Submitted", "✓", "#00684A", "#E1F3EC", "Approved and submitted (mock)"),
 }
 
-_FALLBACK = StatusStyle("", "•", "#454E5C", "#ECEEF2", "")
+# Semantic tones for everything that isn't a status badge (mode pill, fact chips, plan steps, callouts).
+# Each one IS a STATUS entry, so there is one palette and the contrast tests cover all of it.
+TONE: dict[str, StatusStyle] = {
+    "positive": STATUS["ELIGIBLE"],
+    "caution": STATUS["ELIGIBLE_BLOCKED"],
+    "info": STATUS["UNKNOWN"],
+    "attention": STATUS["VERIFY_MANUALLY"],
+    "neutral": STATUS["NOT_ELIGIBLE"],
+}
+
+_FALLBACK = TONE["neutral"]
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    h = hex_color.lstrip("#")
+    return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {alpha})"
+
 
 _CSS = f"""
 <style>
@@ -130,7 +146,7 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-kpi-value {{ font-size: 1.75rem; font-weight: 700; line-height: 1.15; color: var(--ys-ink);
   font-variant-numeric: tabular-nums; }}
 .ys-kpi-label {{ color: var(--ys-muted); font-size: .85rem; margin-top: .15rem; }}
-.ys-kpi-attention {{ border-left-color: #A33F00; }}
+.ys-kpi-attention {{ border-left-color: {TONE["attention"].fg}; }}
 
 /* section header */
 .ys-section-caption {{ color: var(--ys-muted); font-size: .9rem; margin: -.6rem 0 .6rem; }}
@@ -166,14 +182,15 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .st-key-ys-product-grid [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
 .st-key-ys-product-grid [data-testid="stColumn"] {{ min-width: min(230px, 100%); }}
 
-/* a status that just changed: one pulse, then a steady outline (the "was" line says what changed) */
+/* a status that just changed: the card pulses, then keeps an outline; the "Changed from" line says what changed.
+   Keyed on that line (:has), not on the container key, so the card keeps its identity and open expanders stay open. */
 @keyframes ys-changed {{
-  0%   {{ box-shadow: 0 0 0 0 rgba(31, 78, 140, .55); background-color: #E3EFF8; }}
-  70%  {{ box-shadow: 0 0 0 10px rgba(31, 78, 140, 0); }}
-  100% {{ box-shadow: 0 0 0 0 rgba(31, 78, 140, 0); background-color: transparent; }}
+  0%   {{ box-shadow: 0 0 0 0 {_rgba(COLORS["primary"], .55)}; background-color: {TONE["info"].bg}; }}
+  70%  {{ box-shadow: 0 0 0 10px {_rgba(COLORS["primary"], 0)}; }}
+  100% {{ box-shadow: 0 0 0 0 {_rgba(COLORS["primary"], 0)}; background-color: transparent; }}
 }}
-[class*="st-key-ys-changed-"] {{ animation: ys-changed 1.4s ease-out 2; outline: 2px solid var(--ys-primary);
-  outline-offset: -1px; border-radius: .5rem; }}
+[class*="st-key-ys-card-"]:has(.ys-was) {{ animation: ys-changed 1.4s ease-out 2;
+  outline: 2px solid var(--ys-primary); outline-offset: -1px; border-radius: .5rem; }}
 .ys-was {{ font-size: .82rem; color: var(--ys-primary); font-weight: 600; margin: .3rem 0 0; }}
 
 /* the question the officer should ask now */
@@ -182,9 +199,10 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-ask-text[lang="kn"] {{ font-family: "Noto Sans Kannada", sans-serif; }}
 
 /* text the agent wrote for the customer, in the customer's language */
-.ys-to-customer {{ border-left: 4px solid #0B5A8F; background: #E3EFF8; border-radius: 6px; padding: .45rem .75rem;
+.ys-to-customer {{ border-left: 4px solid {TONE["info"].fg}; background: {TONE["info"].bg}; border-radius: 6px;
+  padding: .45rem .75rem;
   margin: .35rem 0; }}
-.ys-to-customer-label {{ font-size: .8rem; font-weight: 600; color: #0B5A8F; }}
+.ys-to-customer-label {{ font-size: .8rem; font-weight: 600; color: {TONE["info"].fg}; }}
 .ys-to-customer-text {{ font-size: 1.05rem; color: var(--ys-ink); }}
 .ys-to-customer-text[lang="kn"] {{ font-family: "Noto Sans Kannada", sans-serif; }}
 
@@ -196,7 +214,8 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-step-dot {{ width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center;
   justify-content: center; font-weight: 700; font-size: .9rem; border: 2px solid currentColor;
   background: var(--ys-surface); font-variant-numeric: tabular-nums; }}
-.ys-step-done .ys-step-dot {{ background: #00684A; border-color: #00684A; color: #fff !important; }}
+.ys-step-done .ys-step-dot {{ background: {TONE["positive"].fg}; border-color: {TONE["positive"].fg};
+  color: #fff !important; }}
 .ys-step-blocked .ys-step-dot {{ border-style: dashed; }}
 .ys-step-title {{ font-weight: 600; color: var(--ys-ink); line-height: 1.3; padding-top: .25rem; }}
 .ys-step-done .ys-step-title {{ color: var(--ys-muted); }}
@@ -227,10 +246,12 @@ def setup_page(title: str = "Yojana Saathi") -> None:
 def mode_pill(llm_configured: bool, provider: str | None = None) -> str:
     if llm_configured:
         text = "Agent mode" + (f" · {provider}" if provider else "")
-        return (f'<span class="ys-pill" style="color:#00684A;background:#E1F3EC" '
+        t = TONE["positive"]
+        return (f'<span class="ys-pill" style="color:{t.fg};background:{t.bg}" '
                 f'title="The LLM runs the conversation; the rules engine still decides eligibility">'
                 f'<span aria-hidden="true">●</span>{_e(text)}</span>')
-    return ('<span class="ys-pill" style="color:#8A5300;background:#FDF0D9" '
+    t = TONE["caution"]
+    return (f'<span class="ys-pill" style="color:{t.fg};background:{t.bg}" '
             'title="No LLM: statuses, plan and questions come from the rules engine. '
             'Answer questions with the form under the chat, then use Prepare all steps.">'
             '<span aria-hidden="true">≡</span>Rules-only mode</span>')
@@ -295,11 +316,14 @@ def status_legend() -> None:
 
 # --- cards and tiles ------------------------------------------------------------------
 
-def card_title(name: str, meta: str = "", badge_html: str = "", detail: str = "", stacked: bool = False) -> None:
+def card_title(name: str, meta: str = "", badge_html: str = "", detail: str = "", stacked: bool = False,
+               note: str = "") -> None:
     """Title row shared by every card: name, small meta text, a badge, optional detail line.
 
     Default: badge on the right. `stacked=True` (grid cards): badge first, then the name, so badges
     line up across a row whatever the name length.
+    `note` (e.g. "Changed from …") is part of the same element, so a card has the same number of
+    elements whether or not it shows one: Streamlit keeps widgets below it (open expanders) as they are.
     `badge_html` must come from status_badge / queue_badge; everything else is escaped here.
     """
     name_html = (f'<span class="ys-card-name">{_e(name)}'
@@ -307,7 +331,8 @@ def card_title(name: str, meta: str = "", badge_html: str = "", detail: str = ""
     inner = f"{badge_html}{name_html}" if stacked else f"{name_html}{badge_html}"
     cls = "ys-card-title ys-card-stacked" if stacked else "ys-card-title"
     _html(f'<div class="{cls}">{inner}</div>'
-          + (f'<p class="ys-card-benefit">{_e(detail)}</p>' if detail else ""))
+          + (f'<p class="ys-card-benefit">{_e(detail)}</p>' if detail else "")
+          + (f'<p class="ys-was" role="status">{_e(note)}</p>' if note else ""))
 
 
 def product_card(result: Mapping[str, Any], previous_status: str | None = None,
@@ -320,12 +345,12 @@ def product_card(result: Mapping[str, Any], previous_status: str | None = None,
     pid = result["product_id"]
     changed = previous_status is not None and previous_status != result["status"]
     labels = action_labels or {}
-    with st.container(border=True, key=f"ys-changed-{pid}" if changed else f"ys-card-{pid}"):
+    note = (f'Changed from {status_style(previous_status or "").label} to {status_style(result["status"]).label}'
+            if changed else "")
+    # Stable key: the card stays the same element when its status changes (the CSS highlight keys on .ys-was).
+    with st.container(border=True, key=f"ys-card-{pid}"):
         card_title(result.get("name") or pid, pid, status_badge(result["status"]), result.get("benefit") or "",
-                   stacked=True)
-        if changed:
-            _html(f'<p class="ys-was" role="status">Changed from {_e(status_style(previous_status or "").label)}'
-                  f' to {_e(status_style(result["status"]).label)}</p>')
+                   stacked=True, note=note)
         failed = result.get("failed_rules") or []
         blocked = result.get("blocked_by") or []
         unknown = result.get("unknown_fields") or []
@@ -388,11 +413,10 @@ def customer_card(c: Mapping[str, Any]) -> bool:
 
 
 def _fact(ok: bool | None, yes: str, no: str, unknown: str) -> str:
-    if ok is None:
-        return f'<span class="ys-fact" style="color:#0B5A8F;background:#E3EFF8">? {_e(unknown)}</span>'
-    if ok:
-        return f'<span class="ys-fact" style="color:#00684A;background:#E1F3EC">✓ {_e(yes)}</span>'
-    return f'<span class="ys-fact" style="color:#A33F00;background:#FBE6DA">✕ {_e(no)}</span>'
+    tone, icon, text = (("info", "?", unknown) if ok is None else ("positive", "✓", yes) if ok
+                        else ("attention", "✕", no))
+    t = TONE[tone]
+    return f'<span class="ys-fact" style="color:{t.fg};background:{t.bg}">{icon} {_e(text)}</span>'
 
 
 def customer_bar(profile: Mapping[str, Any]) -> None:
@@ -447,12 +471,12 @@ class Step:
 
 # How a plan step looks: (dot colour, status text). Done steps show ✓ instead of their number.
 STEP_STATES: dict[str, tuple[str, str]] = {
-    "done": ("#00684A", "✓ Approved by you"),
-    "pending": ("#0B5A8F", "… Waiting for your approval"),
-    "rejected": ("#A33F00", "✕ Rejected: being revised"),
-    "needs_officer": ("#A33F00", "! Needs you: revision limit reached"),
-    "todo": ("#1F4E8C", "Ready to prepare"),
-    "blocked": ("#5A6676", "→ Waiting on an earlier step"),
+    "done": (TONE["positive"].fg, "✓ Approved by you"),
+    "pending": (TONE["info"].fg, "… Waiting for your approval"),
+    "rejected": (TONE["attention"].fg, "✕ Rejected: being revised"),
+    "needs_officer": (TONE["attention"].fg, "! Needs you: revision limit reached"),
+    "todo": (COLORS["primary"], "Ready to prepare"),
+    "blocked": (COLORS["muted"], "→ Waiting on an earlier step"),
 }
 
 
@@ -460,7 +484,7 @@ def stepper(steps: Sequence[Step]) -> None:
     """Numbered plan with done ticks. Each step shows its state as icon + text, not colour alone."""
     rows = []
     for n, s in enumerate(steps, 1):
-        colour, state_text = STEP_STATES.get(s.state, ("#5A6676", s.state))
+        colour, state_text = STEP_STATES.get(s.state, (COLORS["muted"], s.state))
         dot = "✓" if s.state == "done" else str(n)
         label = f"Step {n}, {state_text.lstrip('✓…✕!→ ')}"
         rows.append(f'<li class="ys-step ys-step-{_e(s.state)}" aria-label="{_e(label)}">'

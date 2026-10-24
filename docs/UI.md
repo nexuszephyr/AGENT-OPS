@@ -30,6 +30,8 @@ Theme: primary `#1F4E8C` (passbook ink blue), background `#F7F9FB`, surface `#FF
 | `ALREADY_ENROLLED` | ◆ | Already enrolled | `#7A3E66` | `#F6E8F1` |
 | `VERIFY_MANUALLY` | ! | Verify manually | `#A33F00` | `#FBE6DA` |
 
+Everything else that needs a colour (mode pill, fact chips, plan steps, the to-customer bubble) uses `TONE`, whose entries *are* `STATUS` entries. `test_one_palette_no_raw_hex_outside_the_token_tables` fails if a raw hex value appears outside the token tables.
+
 Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / needs officer = vermilion, revised = orange, approved / submitted = green.
 
 ## Components

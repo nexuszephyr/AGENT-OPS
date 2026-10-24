@@ -97,6 +97,30 @@ def test_new_components_escape_untrusted_text(monkeypatch):
     assert "<script>" not in "".join(out)
 
 
+def test_changed_card_keeps_its_identity(monkeypatch):
+    """PR #40 review: a status change must not remount the card, or an open 'Why this status' collapses.
+    Same container key and the same number of elements whether or not the card shows 'Changed from'."""
+    keys: list[str | None] = []
+    real_container = ui.st.container
+
+    def spy(*args, **kwargs):
+        keys.append(kwargs.get("key"))
+        return real_container(*args, **kwargs)
+
+    html: list[str] = []
+    monkeypatch.setattr(ui.st, "container", spy)
+    monkeypatch.setattr(ui, "_html", html.append)
+    result = {"product_id": "PMFBY", "name": "PM Fasal Bima Yojana", "status": "ELIGIBLE", "benefit": "b",
+              "failed_rules": [], "blocked_by": [], "unknown_fields": [], "source_url": "https://pmfby.gov.in"}
+    ui.product_card(result, previous_status="UNKNOWN")
+    changed_keys, changed_html = keys[:], len(html)
+    keys.clear()
+    html.clear()
+    ui.product_card(result, previous_status=None)
+    assert changed_keys == keys == ["ys-card-PMFBY"]
+    assert changed_html == len(html)
+
+
 def test_changed_card_says_what_it_was(monkeypatch):
     out: list[str] = []
     monkeypatch.setattr(ui, "_html", out.append)
