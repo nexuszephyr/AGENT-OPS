@@ -98,6 +98,7 @@ scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks
   smoke.py                 boots API + UI and walks DEMO.md A1–A7
+  live_llm_check.py        real-LLM scenario run → docs/LIVE_LLM_RUN.md (manual only, needs a key; never in CI)
 .github/workflows/ci.yml   CI; the required check is "CI passed"
 docs/
 ```
