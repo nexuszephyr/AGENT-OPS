@@ -398,7 +398,7 @@ with tab_console:
             else:
                 _activity_body(sid, running=False)
 
-            section_header("Plan", "In the order the steps must happen. Ticks appear as you approve them.")
+            section_header("Plan", "In the order the steps must happen. Ticks appear as they are approved.")
             steps = plan_steps(state, ACTION_LABELS)
             if steps:
                 stepper(steps)

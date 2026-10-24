@@ -12,7 +12,7 @@ import json
 from collections import Counter
 from typing import Any
 
-from app import sessions
+from app import officers, sessions
 
 STAGES: list[dict[str, str]] = [
     {"id": "ingest", "label": "Ingest", "name": "Data ingestion"},
@@ -40,7 +40,7 @@ TOOL_STAGE: dict[str, str] = {
 EVENT_STAGE: dict[str, str] = {
     "session_start": "ingest", "message": "ingest",
     "llm_reply": "decide", "question_resolved": "decide", "question_replaced": "decide", "error": "decide",
-    "reject": "act", "revise": "act", "escalate": "act", "approve": "act",
+    "reject": "act", "revise": "act", "escalate": "act", "approve": "act", "approval_denied": "act",
     "submit_mock": "report", "completion_effect": "report",
 }
 # Covered by the tool event that wrote them, so not shown twice.
@@ -56,6 +56,11 @@ def _short(text: Any, n: int = _TEXT_MAX) -> str:
 
 def _who(actor: str) -> str:
     return {"agent": "Agent", "officer": "Officer"}.get(actor, "System")
+
+
+def _officer(officer_id: Any) -> str:
+    o = officers.get_officer(str(officer_id) if officer_id else None)
+    return o["name"] if o else str(officer_id or "unknown officer")
 
 
 def _tool_event(call: dict, result: dict | None) -> dict:
@@ -153,11 +158,16 @@ def _plain_event(row: dict) -> dict | None:
         tone, title = "attention", "LLM unavailable"
         summary = "Switched to rules-only mode: statuses still come from the rules engine"
     elif ev == "approve":
-        title, summary = f"Officer approved {p.get('item_id', '')}", f"by {p.get('officer_id', '')}"
+        title, summary = f"Officer approved {p.get('item_id', '')}", f"by {_officer(p.get('officer_id'))}"
+    elif ev == "approval_denied":
+        tone = "guardrail"
+        title = f"Maker-checker blocked {_officer(p.get('officer_id'))} on {p.get('item_id', '')}"
+        summary = _short(p.get("reason"))
     elif ev == "submit_mock":
         title, summary = f"Submitted {p.get('item_id', '')}", "Mock submission after approval"
     elif ev == "reject":
-        tone, title, summary = "attention", f"Officer rejected {p.get('item_id', '')}", _short(p.get("reason"))
+        tone, title = "attention", f"{_officer(p.get('officer_id'))} rejected {p.get('item_id', '')}"
+        summary = _short(p.get("reason"))
     elif ev == "escalate":
         tone, title = "attention", f"{p.get('item_id', '')} escalated to the officer"
         summary = "Revision limit reached"

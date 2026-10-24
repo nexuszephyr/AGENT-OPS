@@ -189,7 +189,7 @@ Errors: `MakerCheckerError` → **403**; every other queue/session error → 400
                "detail": { "args": {...}, "result": {...} } } ]
 }
 ```
-A tool call and its result are one event (`tone: "running"` until the result lands). `guardrail` marks a refusal: a tool error, a fact kept from the bank record, or the ranker overriding the model's question.
+A tool call and its result are one event (`tone: "running"` until the result lands). `guardrail` marks a refusal: a tool error, a fact kept from the bank record, the ranker overriding the model's question, or maker-checker blocking an approval (`approval_denied`).
 
 `DashboardStats`:
 ```json

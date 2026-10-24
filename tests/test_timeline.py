@@ -10,6 +10,7 @@ from app.agent.tools import ToolBox
 from app.api import main
 
 NOMINEE = {"nominee_name": "Anjali", "nominee_relation": "daughter"}
+CHECKER = {"officer_id": "manager-1"}  # maker-checker (#39): the branch manager approves what officer-1 prepared
 
 
 @pytest.fixture
@@ -57,19 +58,21 @@ def test_ramesh_moves_through_all_four_stages(client):
     assert "waits for your approval" in seeding["summary"]
 
     for i in st["queue_items"]:
-        client.post(f"/queue/{i['item_id']}/approve", json={})
+        client.post(f"/queue/{i['item_id']}/approve", json=CHECKER)
     t = tl(client, sid)
     assert t["state"] == "ACTING" and t["stage"] == "act"  # seeding + eKYC done: PM-KISAN form is next
 
     st = client.post(f"/sessions/{sid}/act", json={"extra_fields": {}}).json()["state"]
     for i in st["queue_items"]:
         if i["status"] == "PENDING_APPROVAL":
-            client.post(f"/queue/{i['item_id']}/approve", json={})
+            client.post(f"/queue/{i['item_id']}/approve", json=CHECKER)
     t = tl(client, sid)
     assert t["state"] == "DONE" and t["stage"] == "report"
     assert stage_status(t) == {"ingest": "done", "decide": "done", "act": "done", "report": "current"}
     kinds = [e["kind"] for e in t["events"]]
     assert kinds.count("approve") == 7 and kinds.count("submit_mock") == 7
+    approved = next(e for e in t["events"] if e["kind"] == "approve")
+    assert approved["summary"] == "by Branch Manager"
     effect = next(e for e in t["events"] if e["kind"] == "completion_effect")
     assert effect["stage"] == "report" and "aadhaar_seeded = true" in effect["summary"]
 
@@ -168,3 +171,14 @@ def test_full_aadhaar_never_reaches_the_timeline(client):
 
 def test_unknown_session_is_400(client):
     assert client.get("/sessions/S-NOPE/timeline").status_code == 400
+
+
+def test_maker_checker_refusal_is_a_guardrail_event(client):
+    sid = client.post("/sessions", json={"customer_id": "C002"}).json()["session_id"]
+    st = client.post(f"/sessions/{sid}/act", json={"extra_fields": {"PMJJBY": NOMINEE}}).json()["state"]
+    item = st["queue_items"][0]["item_id"]
+    assert client.post(f"/queue/{item}/approve", json={"officer_id": "officer-1"}).status_code == 403  # the maker
+    denied = next(e for e in tl(client, sid)["events"] if e["kind"] == "approval_denied")
+    assert denied["tone"] == "guardrail" and denied["stage"] == "act"
+    assert denied["title"] == f"Maker-checker blocked Banking Correspondent on {item}"
+    assert "only a checker" in denied["summary"]
