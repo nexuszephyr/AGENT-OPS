@@ -328,7 +328,7 @@ with tab_console:
         bar, switch = st.columns([4, 1], vertical_alignment="center")
         with bar:
             customer_bar(state["profile"])
-        if switch.button("Change customer", width="stretch"):
+        if switch.button("Change customer", key="change_customer", width="stretch"):
             st.session_state.pop("state", None)
             st.rerun()
         # CGI's pipeline, live: which stage the session is in and which tools the agent used in each.
@@ -397,7 +397,7 @@ with tab_console:
                             if num is not None:
                                 facts[field] = int(num)
                     b1, b2 = st.columns(2)
-                    if b1.button("Record answer", type="primary", disabled=running or not facts,
+                    if b1.button("Record answer", key="record_answer", type="primary", disabled=running or not facts,
                                  width="stretch"):
                         out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": facts, "question_id": nq["question_id"]})
@@ -409,7 +409,7 @@ with tab_console:
                             else:
                                 st.rerun()
                     # Resolves the question with no answer: its products go to VERIFY_MANUALLY.
-                    if b2.button("Customer doesn't know", disabled=running, width="stretch"):
+                    if b2.button("Customer doesn't know", key="dont_know", disabled=running, width="stretch"):
                         out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": {}, "question_id": nq["question_id"]})
                         if out:
@@ -446,8 +446,8 @@ with tab_console:
             with st.expander("Prepare all steps (rules-only)", expanded=False):
                 st.caption("Nominee and other details per product, as JSON. For example: "
                            '{"PMJJBY": {"nominee_name": "Anjali", "nominee_relation": "daughter"}}')
-                extra_txt = st.text_area("Extra fields", value="{}", height=100)
-                if st.button("Prepare all steps", disabled=running):
+                extra_txt = st.text_area("Extra fields", value="{}", height=100, key="extra_fields")
+                if st.button("Prepare all steps", key="prepare_all", disabled=running):
                     try:
                         extra = json.loads(extra_txt or "{}")
                     except json.JSONDecodeError:
@@ -647,7 +647,7 @@ with tab_scan:
     section_header("Branch scan", "Who to call today, and why. The scan only recommends: nothing is queued and no "
                                   "customer changes until you start a session.")
     run_col, info_col = st.columns([1, 3], vertical_alignment="center")
-    if (run_col.button("Run scan", type="primary", icon=":material/radar:", width="stretch",
+    if (run_col.button("Run scan", key="run_scan", type="primary", icon=":material/radar:", width="stretch",
                        help="Checks every customer in the branch against all seven schemes")
             and api("POST", "/scan", json={"officer_id": OFFICER})):
         flash("Scan complete: the call list is up to date.", ":material/radar:")
