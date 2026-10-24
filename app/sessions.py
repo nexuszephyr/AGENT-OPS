@@ -42,13 +42,16 @@ def get_customer(conn: sqlite3.Connection, customer_id: str) -> dict:
     return json.loads(row["profile_json"])
 
 
-def list_customers(conn: sqlite3.Connection) -> list[dict]:
-    out = []
-    for r in conn.execute("SELECT profile_json FROM customers ORDER BY customer_id"):
-        p = json.loads(r["profile_json"])
-        out.append({k: p.get(k) for k in ("customer_id", "name", "age", "occupation", "district",
-                                          "preferred_language")})
-    return out
+def customer_profiles(conn: sqlite3.Connection) -> list[dict]:
+    """Every bank record, in customer_id order (the proactive scan reads these)."""
+    rows = conn.execute("SELECT profile_json FROM customers ORDER BY customer_id")
+    return [json.loads(r["profile_json"]) for r in rows]
+
+
+def list_customers(conn: sqlite3.Connection, segment: str | None = None) -> list[dict]:
+    return [{k: p.get(k) for k in ("customer_id", "name", "age", "occupation", "district",
+                                   "preferred_language", "segment")}
+            for p in customer_profiles(conn) if segment is None or p.get("segment") == segment]
 
 
 def create(conn: sqlite3.Connection, customer_id: str, officer_id: str) -> dict:

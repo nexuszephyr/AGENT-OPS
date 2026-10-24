@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import audit, config, db, officers, queue, sessions
+from app import audit, config, db, officers, queue, scan, sessions
 from app.agent import loop
 from app.agent.tools import revise_and_render
 from app.data import seed
@@ -22,6 +23,7 @@ from app.rules import engine
 
 app = FastAPI(title="Yojana Saathi", version="0.1.0")
 _conn = None
+_latest_scan: dict | None = None  # last POST /scan result, in memory only
 
 
 def conn():
@@ -99,8 +101,24 @@ def list_officers():
 
 
 @app.get("/customers")
-def customers():
-    return sessions.list_customers(conn())
+def customers(segment: Literal["demo", "branch"] | None = None):
+    return sessions.list_customers(conn(), segment)
+
+
+@app.post("/scan")
+def run_scan():
+    """Branch-wide proactive scan. Recommends only: creates no queue items, changes no customer or session."""
+    global _latest_scan
+    _latest_scan = scan.scan(sessions.customer_profiles(conn()))
+    audit.log(conn(), None, "agent", "scan_run", _latest_scan["summary"])  # summary only, no per-customer data
+    return _latest_scan
+
+
+@app.get("/scan/latest")
+def latest_scan():
+    if _latest_scan is None:
+        raise HTTPException(status_code=404, detail="no scan has run yet")
+    return _latest_scan
 
 
 @app.post("/sessions")

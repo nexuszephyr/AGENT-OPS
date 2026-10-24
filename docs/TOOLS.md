@@ -142,7 +142,9 @@ out: { "item_id": "Q-0007", "status": "PENDING_APPROVAL", "revision_count": 1 }
 |---|---|---|---|
 | GET | `/health` | | `{ok, llm_configured, provider}` |
 | GET | `/officers` | | list of `{officer_id, name, role}` (`role`: `maker` \| `checker`), for the UI's "Acting as" selector |
-| GET | `/customers` | | list of `{customer_id, name, age, occupation, district, preferred_language}` |
+| GET | `/customers` | `?segment=demo\|branch` (optional; default all) | list of `{customer_id, name, age, occupation, district, preferred_language, segment}`. `segment` is `demo` (C001–C006) or `branch` (C101–C130); the officer console picker requests `segment=demo` |
+| POST | `/scan` | | `ScanResult`: branch-wide proactive scan over every customer (`app/scan.py`). **Recommends only:** it creates no queue items and changes no customer or session. Writes one `scan_run` audit event (actor `agent`, no session, payload = `summary` only). The latest result is kept in memory |
+| GET | `/scan/latest` | | the last `ScanResult`, or 404 `{"detail": "no scan has run yet"}` |
 | POST | `/sessions` | `{customer_id, officer_id}` | `SessionState` (runs ingest + first evaluation). `officer_id` must be a known officer (400 otherwise); it becomes `prepared_by` on every item the session queues |
 | POST | `/sessions/{id}/message` | `{text, lang?}` | `{reply: AgentReply, state: SessionState}` |
 | GET | `/sessions/{id}/state` | | `SessionState` |
@@ -172,6 +174,27 @@ Errors: `MakerCheckerError` → **403**; every other queue/session error → 400
   "messages": [ {"role": "user"|"assistant", "content": "..."} ]
 }
 ```
+
+`ScanResult` (call list sorted by `score` desc, then `customer_id`; only customers with ≥ 1 opportunity):
+```json
+{
+  "generated_at": "2026-10-24T09:00:00+00:00", "customers_scanned": 36,
+  "call_list": [{
+    "customer_id": "C001", "name": "Ramesh Gowda", "district": "Mandya", "occupation": "farmer", "segment": "demo",
+    "opportunities": [{"product_id": "PMKISAN_DBT", "status": "ELIGIBLE_BLOCKED", "value_inr": null,
+                       "blocked_by": ["AADHAAR_SEEDING_REQUEST", "EKYC_REQUEST"]}, ...],
+    "blockers": [{"action_id": "AADHAAR_SEEDING_REQUEST", "unlocks": ["PMKISAN_DBT"]}, ...],
+    "urgent": true, "score": 104000, "value_inr_total": 0,
+    "reason": "Eligible for PMJJBY, PMSBY, APY, PMKISAN_DBT · Aadhaar not seeded → PM-KISAN payments will fail"
+  }],
+  "summary": {"customers_with_opportunities": 34, "opportunities_by_product": {"PMJJBY": 28, ...},
+              "blockers_by_action": {"AADHAAR_SEEDING_REQUEST": 3, ...}, "urgent_count": 4, "value_inr_unclaimed": 0}
+}
+```
+- **opportunities:** products `ELIGIBLE` or `ELIGIBLE_BLOCKED` (`ALREADY_ENROLLED`, `NOT_ELIGIBLE`, `UNKNOWN` excluded). `value_inr` comes from the rules result and is `null` until #36 adds it.
+- **blockers:** the plan's prerequisite actions, with the products each unlocks.
+- **urgent:** `AADHAAR_SEEDING_REQUEST` or `EKYC_REQUEST` blocks `PMKISAN_DBT`.
+- **score** = Σ `value_inr` (0 if missing) + 100000 if urgent + 1000 × number of opportunities.
 
 `DashboardStats`:
 ```json
