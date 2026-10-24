@@ -13,3 +13,4 @@ smoke-logs/
 smoke-screenshots/
 .mypy_cache/
 .ruff_cache/
+docs/screenshots/index.md

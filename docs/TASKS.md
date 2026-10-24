@@ -27,7 +27,7 @@ Work on a branch (`om/*`, `abhinav/*`, `feat/*`, `docs/*`, …) and open every P
 | #19 Approval queue redesign: inline PDF preview, revision diff, one-click actions | Abhinav | open |
 | #21 Branch dashboard redesign: KPI tiles, enrollment funnel, interactive charts | Om | done |
 | #24 UI polish and accessibility pass | Abhinav | open |
-| #26 UI tests: extend the smoke AppTest and publish screenshots from CI | Om | open |
+| #26 UI tests: extend the smoke AppTest and publish screenshots from CI | Om | done |
 | #38 Branch scan tab: call list UI with one-click "Start session" | Abhinav | planned |
 
 **Sprint 3: Demo day**
