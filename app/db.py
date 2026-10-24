@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS queue_items (
   revision_count INTEGER DEFAULT 0,
   decided_by TEXT,
   decided_at TEXT,
+  prepared_by TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,6 +73,9 @@ _MIGRATIONS = {
     "sessions": {
         "asked_questions_json": "TEXT DEFAULT '[]'",
         "pending_question": "TEXT",
+    },
+    "queue_items": {
+        "prepared_by": "TEXT",  # the maker: session officer, or the officer who last revised it
     },
 }
 

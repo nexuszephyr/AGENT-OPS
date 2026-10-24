@@ -3,7 +3,7 @@
     python scripts/smoke.py
 
 Boots the API and UI on free ports with a throwaway DB, walks the demo script
-(DEMO.md A1-A6) over HTTP, checks the UI health endpoint, and fails on any
+(DEMO.md A1-A7, A9) over HTTP, checks the UI health endpoint, and fails on any
 traceback in the server logs. Logs are left in $SMOKE_LOG_DIR (default: ./smoke-logs).
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = Path(os.getenv("SMOKE_LOG_DIR", ROOT / "smoke-logs"))
 NOMINEE = {"nominee_name": "Anjali", "nominee_relation": "daughter"}
+MAKER, CHECKER = {"officer_id": "officer-1"}, {"officer_id": "manager-1"}  # maker-checker (#39)
 
 
 def free_port() -> int:
@@ -111,9 +112,14 @@ def main() -> int:
                  len(st["queue_items"]) == 6 and all(i["status"] == "PENDING_APPROVAL" for i in st["queue_items"]))
         code, pdf = http("GET", f"{api}/queue/{st['queue_items'][0]['item_id']}/pdf")
         sm.check("PDF download works", code == 200 and isinstance(pdf, bytes) and pdf[:4] == b"%PDF")
+        first = st["queue_items"][0]["item_id"]
+        code, _ = http("POST", f"{api}/queue/{first}/approve", MAKER)
+        _, still = http("GET", f"{api}/queue?status=PENDING_APPROVAL")
+        sm.check("A9 maker-checker: the preparer's approve is refused (403), item still pending",
+                 code == 403 and any(i["item_id"] == first for i in still), code)
         for i in st["queue_items"]:
             if i["action_id"]:
-                _, out = http("POST", f"{api}/queue/{i['item_id']}/approve", {})
+                _, out = http("POST", f"{api}/queue/{i['item_id']}/approve", CHECKER)
         sm.check("approving seeding + eKYC unlocks PM-KISAN",
                  {r["product_id"]: r["status"] for r in out["state"]["results"]}["PMKISAN_DBT"] == "ELIGIBLE")
 
@@ -127,19 +133,19 @@ def main() -> int:
             "PMJJBY": {"nominee_name": "Anjeli", "nominee_relation": "daughter"}, "PMSBY": NOMINEE,
             "SSY": {"girl_child_name": "Anjali", "girl_child_dob": "2020-03-14"}}})
         iid = next(i["item_id"] for i in out["state"]["queue_items"] if i["product_id"] == "PMJJBY")
-        _, rej = http("POST", f"{api}/queue/{iid}/reject", {"reason": "Nominee is Anjali"})
-        _, rev = http("POST", f"{api}/queue/{iid}/revise", {"changes": {"nominee_name": "Anjali"}})
+        _, rej = http("POST", f"{api}/queue/{iid}/reject", {**CHECKER, "reason": "Nominee is Anjali"})
+        _, rev = http("POST", f"{api}/queue/{iid}/revise", {**MAKER, "changes": {"nominee_name": "Anjali"}})
         sm.check("A5 reject -> officer revise -> pending again",
                  rej["item"]["status"] == "REJECTED" and rev["item"]["status"] == "PENDING_APPROVAL", rev)
         # built at runtime so check_guardrails.py's no-full-Aadhaar scan stays clean
         fake_full_id = "-".join(["2345", "6789", "0123"])
-        code, _ = http("POST", f"{api}/queue/{iid}/revise", {"changes": {"nominee_name": fake_full_id}})
+        code, _ = http("POST", f"{api}/queue/{iid}/revise", {**MAKER, "changes": {"nominee_name": fake_full_id}})
         sm.check("full Aadhaar refused on revise (400)", code == 400, code)
 
         # A6: approve everything, dashboard reflects it
         _, pending = http("GET", f"{api}/queue?status=PENDING_APPROVAL")
         for i in pending:
-            http("POST", f"{api}/queue/{i['item_id']}/approve", {})
+            http("POST", f"{api}/queue/{i['item_id']}/approve", CHECKER)
         _, d = http("GET", f"{api}/dashboard")
         sm.check("A6 dashboard: nothing pending, approvals counted",
                  d["items_pending"] == 0 and d["items_approved"] >= 8, d)
@@ -153,6 +159,11 @@ def main() -> int:
         at = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         sm.check("UI renders without exceptions", not at.exception, [e.value for e in at.exception])
         sm.check("UI shows three tabs", len(at.tabs) == 3, len(at.tabs))
+        mgr = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
+        mgr.selectbox(key="officer_id").set_value("manager-1").run()
+        starts = [b for b in mgr.button if b.label == "Start session"]
+        sm.check("A9 UI: Start session is locked for the Branch Manager (checker)",
+                 bool(starts) and all(b.disabled for b in starts), len(starts))
         next(b for b in at.button if b.label == "Start session").click().run()
         sm.check("UI 'Start session' renders the product panel without exceptions",
                  not at.exception and any("Products" in s.value for s in at.subheader),

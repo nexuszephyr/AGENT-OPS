@@ -41,7 +41,7 @@ def test_a1_a3_ramesh_flow(client):
     # approving seeding + eKYC unlocks PM-KISAN DBT
     for i in st["queue_items"]:
         if i["action_id"]:
-            st = client.post(f"/queue/{i['item_id']}/approve", json={}).json()["state"]
+            st = client.post(f"/queue/{i['item_id']}/approve", json={"officer_id": "manager-1"}).json()["state"]
     assert statuses(st)["PMKISAN_DBT"] == "ELIGIBLE"
 
 
@@ -56,7 +56,7 @@ def test_a4_a5_priya_reject_flow(client):
         "PMSBY": NOMINEE, "SSY": {"girl_child_name": "Anjali", "girl_child_dob": "2020-03-14"}}}).json()["state"]
     item = next(i for i in st["queue_items"] if i["product_id"] == "PMJJBY")
     out = client.post(f"/queue/{item['item_id']}/reject",
-                      json={"reason": "Nominee is Anjali, not Anjeli"}).json()
+                      json={"officer_id": "manager-1", "reason": "Nominee is Anjali, not Anjeli"}).json()
     assert out["item"]["status"] == "REJECTED"           # no LLM here, so it waits for a revision
     assert out["reply"]["mode"] == "rules_only"
 
@@ -67,7 +67,7 @@ def test_a6_approve_all_updates_dashboard(client):
         "PMJJBY": NOMINEE, "APY": {**NOMINEE, "pension_amount": 1000},
         "SSY": {"girl_child_name": "Zoya", "girl_child_dob": "2023-01-02"}}}).json()["state"]
     for i in st["queue_items"]:
-        client.post(f"/queue/{i['item_id']}/approve", json={})
+        client.post(f"/queue/{i['item_id']}/approve", json={"officer_id": "manager-1"})
     d = client.get("/dashboard").json()
     assert d["items_approved"] == len(st["queue_items"]) and d["items_pending"] == 0
     assert client.get(f"/sessions/{sid}/state").json()["state"] == "DONE"

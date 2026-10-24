@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import audit, config, db, queue, sessions
+from app import audit, config, db, officers, queue, sessions
 from app.agent import loop
 from app.agent.tools import revise_and_render
 from app.data import seed
@@ -61,12 +61,13 @@ class ActIn(BaseModel):
     extra_fields: dict[str, dict] = {}
 
 
+# officer_id is required: under maker-checker a silent default would be refused or misattributed
 class ApproveIn(BaseModel):
-    officer_id: str = "officer-1"
+    officer_id: str
 
 
 class RejectIn(BaseModel):
-    officer_id: str = "officer-1"
+    officer_id: str
     reason: str
 
 
@@ -79,6 +80,8 @@ class ReviseIn(BaseModel):
 def _guard(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except queue.MakerCheckerError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except (sessions.SessionError, queue.QueueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -88,6 +91,11 @@ def _guard(fn, *args, **kwargs):
 @app.get("/health")
 def health():
     return {"ok": True, "llm_configured": config.llm_configured(), "provider": config.LLM_PROVIDER}
+
+
+@app.get("/officers")
+def list_officers():
+    return [officers.get_officer(oid) for oid in officers.OFFICERS]
 
 
 @app.get("/customers")
@@ -148,7 +156,7 @@ def revise(item_id: str, body: ReviseIn):
     The item goes back to PENDING_APPROVAL: the officer still approves it explicitly.
     """
     item = _guard(revise_and_render, conn(), item_id, body.changes,
-                  body.explanation or f"edited by {body.officer_id}", "officer")
+                  body.explanation or f"edited by {body.officer_id}", "officer", body.officer_id)
     return {"item": item, "state": sessions.state_view(conn(), item["session_id"])}
 
 

@@ -402,14 +402,18 @@ def language_chip(code: str | None) -> str:
     return f'<span class="ys-lang" lang="{_e(code or "en")}" title="Prefers {_e(english)}">{_e(native)}</span>'
 
 
-def customer_card(c: Mapping[str, Any]) -> bool:
-    """One customer in the picker. Returns True when the officer starts a session for them."""
+def customer_card(c: Mapping[str, Any], blocked: str | None = None) -> bool:
+    """One customer in the picker. Returns True when the officer starts a session for them.
+
+    `blocked` (a reason) disables Start session, e.g. for a checker under maker-checker.
+    """
     with st.container(border=True):
         occupation = str(c.get("occupation") or "").replace("_", " ")
         _html(f'<div class="ys-cust-name">{_e(c.get("name"))}</div>'
               f'<div class="ys-cust-meta">{_e(c.get("age"))} · {_e(occupation)} · {_e(c.get("district"))}</div>'
               f'{language_chip(c.get("preferred_language"))}')
-        return st.button("Start session", key=f"start_{c['customer_id']}", width="stretch")
+        return st.button("Start session", key=f"start_{c['customer_id']}", width="stretch",
+                         disabled=bool(blocked), help=blocked)
 
 
 def _fact(ok: bool | None, yes: str, no: str, unknown: str) -> str:

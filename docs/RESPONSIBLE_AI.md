@@ -9,6 +9,7 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 | 1 | **Eligibility is decided by deterministic rules, not the LLM** | `rules/engine.py`; `fill_form` re-runs the engine | Priya's APY rejection shows two cited rules |
 | 2 | **Every decision cites its rule and source** | `ProductResult.failed_rules`, `source_url`; startup validation | Click a status → rule text + source link |
 | 3 | **Human approval gate**: nothing is submitted without an officer | `queue.py` state machine; LLM has no approve tool; `check_guardrails.py` fails CI if any code in `app/` or `ui/` other than the officer routes reaches `queue.approve`/`reject` (aliased imports and raw `queue_items` SQL included); test harnesses in `tests/` and `scripts/` may call them only while playing the officer | Officer approves Ramesh's items; rejects one of Priya's |
+| 3a | **Maker-checker: the preparer can't approve** | `app/queue.py` (`approve`/`reject` need a `checker` who isn't the item's `prepared_by`; refusals raise `MakerCheckerError` → 403 and are audited as `approval_denied`); roles in `app/officers.py` | Banking Correspondent's approve is refused; switch "Acting as" to Branch Manager, who approves |
 | 4 | **Bounded autonomy**: question limit (5), tool-call limit (8/turn), revision limit (2) | `loop.py`, `queue.py` | Mention in pitch |
 | 5 | **Unknown ≠ guess**: missing data → UNKNOWN / VERIFY_MANUALLY | engine Kleene logic | Arjun's APY starts UNKNOWN |
 | 6 | **Bank record and completed requests win over conversation**; recorded facts change only via the officer | `update_profile` conflict rule (effective profile) | Optional: customer contradicts DB, agent flags it |
@@ -27,6 +28,7 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 
 - We don't claim the rules are complete or legally authoritative. They are simplified, sourced and dated; production would sync them from official notifications.
 - We don't claim the agent is always correct. That's why the officer approves every action.
+- We don't claim maker-checker is access control: `officer_id` is self-asserted in this prototype; in production it would come from the bank's SSO session.
 - We don't connect to real CBS, UIDAI, PM-KISAN or PMFBY systems. Those are mocked, and the interfaces are designed so they could be swapped in.
 
 ## 4. Failure cases we test
