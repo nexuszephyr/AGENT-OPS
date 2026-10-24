@@ -90,7 +90,7 @@ app/
   timeline.py              audit log → Ingest/Decide/Act/Report timeline for the UI (pure, read-only)
   db.py                    SQLite schema + in-place column migrations; one connection, serialized per statement
   config.py                env settings and stop limits (questions, tool calls, revisions)
-ui/streamlit_app.py        officer console | approval queue | dashboard tabs
+ui/streamlit_app.py        officer console | branch scan | approval queue | dashboard tabs
 ui/components.py           shared UI components + status palette (docs/UI.md); theme in .streamlit/config.toml
 tests/
   test_rules.py            rule engine + the two demo traps

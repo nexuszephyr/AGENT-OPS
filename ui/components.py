@@ -263,6 +263,19 @@ a:focus-visible, button:focus-visible, [role="tab"]:focus-visible {{
 .ys-diff-before {{ color: {TONE["attention"].fg}; text-decoration: line-through; }}
 .ys-diff-after {{ color: {TONE["positive"].fg}; font-weight: 600; }}
 
+/* branch scan call list (#38) */
+.ys-call {{ display: grid; grid-template-columns: 2.4rem 1fr; gap: .2rem .75rem; align-items: start; }}
+.ys-rank {{ font-size: 1.35rem; font-weight: 700; color: var(--ys-muted); font-variant-numeric: tabular-nums;
+  line-height: 1.6; text-align: right; }}
+.ys-call-head {{ display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }}
+.ys-call-name {{ font-weight: 700; font-size: 1.05rem; color: var(--ys-ink); }}
+.ys-call-meta {{ color: var(--ys-muted); font-size: .85rem; }}
+.ys-call-value {{ margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ys-ink); }}
+.ys-call-reason {{ color: var(--ys-ink); font-size: .9rem; margin-top: .3rem; }}
+.ys-opps {{ display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .3rem; }}
+.ys-opp {{ display: inline-flex; gap: .25rem; align-items: center; font-size: .78rem; font-weight: 600;
+  padding: .05rem .45rem; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }}
+
 @media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important; animation: none !important; }} }}
 </style>
 """
@@ -743,3 +756,69 @@ def pdf_first_page_png(pdf: bytes, width_px: int = 520) -> tuple[bytes, int]:
         return buf.getvalue(), len(doc)
     finally:
         doc.close()
+
+
+# --- branch scan call list (issue #38) ---------------------------------------------------------
+
+def inr(value: Any) -> str:
+    """₹ with Indian digit grouping (12,34,567); "—" when unknown."""
+    if value is None:
+        return "—"
+    n = int(value)
+    s, sign = str(abs(n)), "-" if n < 0 else ""
+    if len(s) > 3:
+        head, tail = s[:-3], s[-3:]
+        head = ",".join([head[max(0, i - 2):i] for i in range(len(head), 0, -2)][::-1])
+        s = f"{head},{tail}"
+    return f"{sign}₹{s}"
+
+
+def opportunity_chip(o: Mapping[str, Any], product_names: Mapping[str, str] | None = None) -> str:
+    """One product the customer could get: ✓ ready, → after a prerequisite. Icon + text."""
+    blocked = o.get("status") == "ELIGIBLE_BLOCKED"
+    t = STATUS["ELIGIBLE_BLOCKED"] if blocked else STATUS["ELIGIBLE"]
+    pid = str(o.get("product_id", ""))
+    title = (product_names or {}).get(pid, pid) + (" (needs a prerequisite first)" if blocked else "")
+    return (f'<span class="ys-opp" style="color:{t.fg};background:{t.bg}" title="{_e(title)}">'
+            f'<span aria-hidden="true">{_e(t.icon)}</span>{_e(pid)}</span>')
+
+
+def call_row(c: Mapping[str, Any], product_names: Mapping[str, str] | None = None) -> None:
+    """One customer on the call list: rank, who, why to call (urgent first), what they could get, ₹ value."""
+    occupation = str(c.get("occupation") or "").replace("_", " ")
+    urgent = (f'<span class="ys-badge" style="color:{TONE["attention"].fg};background:{TONE["attention"].bg}">'
+              f'<span class="ys-badge-icon" style="background:{TONE["attention"].fg}" aria-hidden="true">!</span>'
+              "PM-KISAN at risk</span>") if c.get("urgent") else ""
+    value = c.get("value_inr_total")
+    chips = "".join(opportunity_chip(o, product_names) for o in c.get("opportunities") or [])
+    _html('<div class="ys-call">'
+          f'<div class="ys-rank" aria-label="Rank {_e(c.get("rank"))}">{_e(c.get("rank"))}</div><div>'
+          '<div class="ys-call-head">'
+          f'<span class="ys-call-name">{_e(c.get("name"))}</span>'
+          f'<span class="ys-call-meta">{_e(c.get("customer_id"))} · {_e(occupation)} · {_e(c.get("district"))}</span>'
+          f"{urgent}"
+          + (f'<span class="ys-call-value" title="Value of the schemes they could get">{_e(inr(value))}</span>'
+             if value else "")
+          + "</div>"
+          f'<div class="ys-opps">{chips}</div>'
+          f'<div class="ys-call-reason">{_e(c.get("reason"))}</div>'
+          "</div></div>")
+
+
+def filter_call_list(rows: Sequence[Mapping[str, Any]], products: Iterable[str] = (), blockers: Iterable[str] = (),
+                     districts: Iterable[str] = (), urgent_only: bool = False) -> list[Mapping[str, Any]]:
+    """Rows matching every filter that is set: any chosen product, any chosen blocker, a chosen district.
+    Pure; keeps the scan's ranking order."""
+    products, blockers, districts = set(products), set(blockers), set(districts)
+    out = []
+    for c in rows:
+        if urgent_only and not c.get("urgent"):
+            continue
+        if products and not products & {o.get("product_id") for o in c.get("opportunities") or []}:
+            continue
+        if blockers and not blockers & {b.get("action_id") for b in c.get("blockers") or []}:
+            continue
+        if districts and c.get("district") not in districts:
+            continue
+        out.append(c)
+    return out

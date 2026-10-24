@@ -4,14 +4,14 @@
 
 ```
 ┌──────────────────────── Streamlit UI (ui/streamlit_app.py) ────────────────────────┐
-│  Tab 1: Officer console        Tab 2: Approval queue        Tab 3: Branch dashboard │
-│  (pick customer, chat,          (approve / reject with       (KPIs, blocked reasons,│
-│   live product status panel)     reason; officer edit)        audit log)            │
+│  Officer console     Branch scan          Approval queue        Branch dashboard    │
+│  (customer, chat,    (run scan, ranked    (approve / reject,    (KPIs, blocked      │
+│   live pipeline)      call list → start)   diff, PDF preview)    reasons, audit log)│
 └───────────────────────────────────────┬────────────────────────────────────────────┘
                                         │ HTTP (JSON)
 ┌───────────────────────────── FastAPI (app/api/main.py) ────────────────────────────┐
 │ /sessions  …/message  …/state  …/facts  …/act  /queue (approve|reject|revise|pdf)   │
-│ /dashboard  /audit  /health  /customers                                             │
+│ /dashboard  /audit  /health  /customers  /scan  …/timeline  /queue/{id}/history     │
 └───────────────────────────────────────┬────────────────────────────────────────────┘
                                         │
                       ┌──── Agent orchestrator (app/agent/loop.py) ────┐

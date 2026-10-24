@@ -224,3 +224,60 @@ def test_pdf_preview_renders_the_real_form(tmp_path):
 
     w, h = Image.open(io.BytesIO(png)).size
     assert w == 300 and 1.35 < h / w < 1.48   # an A4 page
+
+
+# --- branch scan call list (issue #38) ---------------------------------------------------------
+
+ROW = {"customer_id": "C106", "name": "Nethra Bhat", "district": "Tumakuru", "occupation": "farmer", "rank": 1,
+       "urgent": True, "value_inr_total": 0,
+       "opportunities": [{"product_id": "PMJJBY", "status": "ELIGIBLE"},
+                         {"product_id": "PMKISAN_DBT", "status": "ELIGIBLE_BLOCKED"}],
+       "blockers": [{"action_id": "AADHAAR_SEEDING_REQUEST", "unlocks": ["PMKISAN_DBT"]}],
+       "reason": "Eligible for PMJJBY, PMKISAN_DBT · Aadhaar not seeded → PM-KISAN payments will fail"}
+
+
+def test_inr_uses_indian_digit_grouping():
+    assert [ui.inr(v) for v in (None, 0, 436, 12345, 123456, 12345678)] == \
+        ["—", "₹0", "₹436", "₹12,345", "₹1,23,456", "₹1,23,45,678"]
+
+
+def test_call_row_shows_rank_urgency_chips_and_reason(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    ui.call_row(ROW, {"PMJJBY": "PM Jeevan Jyoti Bima Yojana"})
+    html = out[0]
+    assert 'aria-label="Rank 1"' in html and "PM-KISAN at risk" in html and "Nethra Bhat" in html
+    assert "✓</span>PMJJBY" in html and "→</span>PMKISAN_DBT" in html          # icon + text per opportunity
+    assert "needs a prerequisite first" in html                               # blocked chip explains itself
+    assert "ys-call-value" not in html                                        # no ₹0 shown before #36
+    assert "PM-KISAN payments will fail" in html
+
+
+def test_call_row_shows_value_and_no_urgency_when_not_urgent(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    ui.call_row({**ROW, "urgent": False, "value_inr_total": 123456})
+    assert "₹1,23,456" in out[0] and "PM-KISAN at risk" not in out[0]
+
+
+def test_call_row_escapes(monkeypatch):
+    out: list[str] = []
+    monkeypatch.setattr(ui, "_html", out.append)
+    evil = "<script>alert(1)</script>"
+    ui.call_row({**ROW, "name": evil, "district": evil, "occupation": evil, "reason": evil, "customer_id": evil,
+                 "opportunities": [{"product_id": evil, "status": "ELIGIBLE"}]}, {evil: evil})
+    assert "<script>" not in out[0]
+
+
+def test_filter_call_list_keeps_ranking_and_combines_filters():
+    rows = [{**ROW, "customer_id": "A", "rank": 1},
+            {**ROW, "customer_id": "B", "rank": 2, "urgent": False, "district": "Mandya", "blockers": [],
+             "opportunities": [{"product_id": "SSY", "status": "ELIGIBLE"}]},
+            {**ROW, "customer_id": "C", "rank": 3, "district": "Mandya"}]
+    ids = lambda rs: [r["customer_id"] for r in rs]  # noqa: E731
+    assert ids(ui.filter_call_list(rows)) == ["A", "B", "C"]
+    assert ids(ui.filter_call_list(rows, urgent_only=True)) == ["A", "C"]
+    assert ids(ui.filter_call_list(rows, products=["SSY"])) == ["B"]
+    assert ids(ui.filter_call_list(rows, blockers=["AADHAAR_SEEDING_REQUEST"])) == ["A", "C"]
+    assert ids(ui.filter_call_list(rows, districts=["Mandya"], urgent_only=True)) == ["C"]
+    assert ids(ui.filter_call_list(rows, products=["APY"])) == []

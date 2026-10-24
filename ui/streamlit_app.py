@@ -2,7 +2,7 @@
 
     streamlit run ui/streamlit_app.py     (API must be running on API_URL, default :8000)
 
-Tabs: Officer console | Approval queue | Branch dashboard.
+Tabs: Officer console | Branch scan | Approval queue | Branch dashboard.
 Look and feel: .streamlit/config.toml (theme) + ui/components.py (shared components, issue #16).
 """
 from __future__ import annotations
@@ -22,11 +22,15 @@ from components import (
     COLORS,
     activity_feed,
     app_header,
+    call_row,
     card_title,
     customer_bar,
     customer_bubble,
     customer_card,
     empty_state,
+    event_time,
+    filter_call_list,
+    inr,
     key_values,
     kpi_tiles,
     pdf_first_page_png,
@@ -91,7 +95,9 @@ LOCKED_FIELDS = {"customer_id", "form", "prepared_on", "aadhaar_masked", "accoun
 setup_page()
 
 
-def api(method: str, path: str, **kw):
+def api(method: str, path: str, quiet: bool = False, **kw):
+    """Call the API. Errors are shown on the page and return None; `quiet=True` returns None silently
+    (for an expected miss, e.g. GET /scan/latest before any scan)."""
     try:
         r = requests.request(method, f"{API}{path}", timeout=120, **kw)
     except requests.ConnectionError:
@@ -101,7 +107,8 @@ def api(method: str, path: str, **kw):
         st.error(f"Refused: {r.json().get('detail', r.text)}")
         return None
     if r.status_code >= 400:
-        st.error(f"The API returned {r.status_code}: {r.text}")
+        if not quiet:
+            st.error(f"The API returned {r.status_code}: {r.text}")
         return None
     return r.json() if "json" in r.headers.get("content-type", "") else r.content
 
@@ -269,7 +276,12 @@ def decide_block(item: dict) -> str | None:
         return "You prepared this item, so you can't approve or reject it (maker-checker)."
     return None
 
-tab_console, tab_queue, tab_dash = st.tabs(["Officer console", "Approval queue", "Branch dashboard"])
+# The tabs track state (key + on_change) so a click elsewhere can open the console: "Start session" on a scan row
+# sets goto_tab, and it is applied here, before the tabs are drawn (#38).
+if goto := st.session_state.pop("goto_tab", None):
+    st.session_state["nav"] = goto
+tab_console, tab_scan, tab_queue, tab_dash = st.tabs(
+    ["Officer console", "Branch scan", "Approval queue", "Branch dashboard"], key="nav", on_change="rerun")
 
 # --- Officer console (issue #17) --------------------------------------------------------
 with tab_console:
@@ -600,6 +612,88 @@ with tab_queue:
                        "Prepared by": officer_name(i.get("prepared_by")),
                        "Approved by": officer_name(i["decided_by"]), "Approved at": i["decided_at"]}
                       for i in done], width="stretch", hide_index=True)
+
+# --- Branch scan (issue #38) ---------------------------------------------------------------
+SCAN_PAGE = 10  # rows shown before "Show all"
+
+
+def start_session_from_scan(c: dict) -> None:
+    new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER})
+    if new:
+        set_state(new)
+        st.session_state["goto_tab"] = "Officer console"
+        flash(f"Session started for {c.get('name')} ({c['customer_id']}), rank {c.get('rank')} on the call list.",
+              ":material/play_arrow:")
+        st.rerun()
+
+
+with tab_scan:
+    section_header("Branch scan", "Who to call today, and why. The scan only recommends: nothing is queued and no "
+                                  "customer changes until you start a session.")
+    run_col, info_col = st.columns([1, 3], vertical_alignment="center")
+    if (run_col.button("Run scan", type="primary", icon=":material/radar:", width="stretch",
+                       help="Checks every customer in the branch against all seven schemes")
+            and api("POST", "/scan", json={"officer_id": OFFICER})):
+        flash("Scan complete: the call list is up to date.", ":material/radar:")
+        st.rerun()
+    result = api("GET", "/scan/latest", quiet=True)
+    if not result:
+        empty_state("No scan yet today", "Run the scan to build the call list from every customer in the branch.")
+    else:
+        summary, rows = result["summary"], result["call_list"]
+        info_col.caption(f"Last run at {event_time(result['generated_at'].replace('T', ' ')[:19])}: "
+                         f"{result['customers_scanned']} customers scanned, {len(rows)} worth a call.")
+        by_product = summary.get("opportunities_by_product") or {}
+        top = max(by_product, key=lambda k: by_product[k]) if by_product else None
+        seeding = (summary.get("blockers_by_action") or {}).get("AADHAAR_SEEDING_REQUEST", 0)
+        unclaimed = summary.get("value_inr_unclaimed") or 0
+        kpi_tiles([
+            ("₹ unclaimed", inr(unclaimed) if unclaimed else "—"),
+            ("Customers to call", summary["customers_with_opportunities"]),
+            ("PM-KISAN payments at risk", summary["urgent_count"], summary["urgent_count"] > 0),
+            ("Need Aadhaar seeding", seeding, seeding > 0),
+            (f"Top product: {by_product[top]} customers" if top else "Top product", top or "—"),
+        ])
+        if not unclaimed:
+            st.caption("₹ shows — until rupee values per scheme are in the rules catalogue (#36). "
+                       "Ranked urgent first (a failing PM-KISAN credit), then by value and number of schemes.")
+
+        # filters fold away so the top-ranked row is on screen at 1366x768 (#38 done-when: one click)
+        # a constant label: a changing one would make Streamlit redraw the expander closed after every pick
+        filters = st.expander("Filter the call list", icon=":material/filter_list:")
+        f1, f2, f3, f4 = filters.columns([1.3, 1.3, 1.3, 0.8], vertical_alignment="bottom")
+        products = f1.multiselect("Product", sorted(by_product), key="scan_products",
+                                  format_func=lambda p: f"{p} · {PRODUCT_NAMES.get(p, p)}", placeholder="Any product")
+        blockers = f2.multiselect("Blocker", sorted(summary.get("blockers_by_action") or {}), key="scan_blockers",
+                                  format_func=lambda a: ACTION_LABELS.get(a, a), placeholder="Any blocker")
+        districts = f3.multiselect("District", sorted({c.get("district") or "" for c in rows} - {""}),
+                                   key="scan_districts", placeholder="Any district")
+        urgent_only = f4.toggle("Urgent only", key="scan_urgent",
+                                help="Only customers whose PM-KISAN payments will fail")
+        shown = filter_call_list(rows, products, blockers, districts, urgent_only)
+        active = [*([f"product: {', '.join(products)}"] if products else []),
+                  *([f"blocker: {', '.join(ACTION_LABELS.get(a, a) for a in blockers)}"] if blockers else []),
+                  *([f"district: {', '.join(districts)}"] if districts else []),
+                  *(["urgent only"] if urgent_only else [])]
+        if active:
+            st.caption(f"Filtered by {'; '.join(active)}: {len(shown)} of {len(rows)} customers.")
+        show_all = bool(st.session_state.get("scan_all")) and len(shown) > SCAN_PAGE
+        if MAKER_ONLY:
+            st.caption(f"🔒 {MAKER_ONLY}")
+        if not shown:
+            empty_state("No customers match these filters", "Clear a filter to see more of the call list.")
+        for c in shown if show_all else shown[:SCAN_PAGE]:
+            with st.container(border=True, key=f"scan-{c['customer_id']}"):
+                info, act = st.columns([5, 1], vertical_alignment="center")
+                with info:
+                    call_row(c, PRODUCT_NAMES)
+                if act.button("Start session", key=f"scan_start_{c['customer_id']}", type="primary" if c["rank"] == 1
+                              else "secondary", icon=":material/play_arrow:", width="stretch",
+                              disabled=bool(MAKER_ONLY), help=MAKER_ONLY or "Opens the officer console for them"):
+                    start_session_from_scan(c)
+        if len(shown) > SCAN_PAGE:
+            st.toggle(f"Show all {len(shown)}" if not show_all else f"Showing all {len(shown)}", key="scan_all",
+                      help=f"Only the top {SCAN_PAGE} are shown by default")
 
 # --- Dashboard ------------------------------------------------------------------------------
 with tab_dash:
