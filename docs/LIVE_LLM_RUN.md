@@ -13,7 +13,7 @@
 | A Ramesh | A2 crop facts NOT set before officer confirms | 2/2 ✅ |
 | A Ramesh | A2 PMFBY still UNKNOWN | 2/2 ✅ |
 | A Ramesh | A2 reply asks the crop question (Q_NOTIFIED_CROP) | 2/2 ✅ |
-| A Ramesh | A2 to_customer in Kannada (recorded) *(recorded)* | 2/2 |
+| A Ramesh | A2 to_customer in Kannada *(recorded)* | 2/2 |
 | A Ramesh | A3 officer confirms → PMFBY=ELIGIBLE | 2/2 ✅ |
 | A Ramesh | A4 queue has seeding, eKYC + PMJJBY, PMSBY, APY, PMFBY forms | 2/2 ✅ |
 | A Ramesh | A4 every item PENDING_APPROVAL, nothing SUBMITTED | 2/2 ✅ |
@@ -40,11 +40,11 @@
 
 ## Latency per turn
 
-Median **9.1 s**, max **30.4 s** over 20 turns.
+Median **9.1 s**, max **30.4 s** over 20 turns. ⚠ = slower than 30 s.
 
 | Turn | run 1 | run 2 |
 |---|---|---|
-| A2 | 30.4 s | 6.0 s |
+| A2 | 30.4 s ⚠ | 6.0 s |
 | A3 | 19.7 s | 18.6 s |
 | A4 | 14.7 s | 14.4 s |
 | B1 | 11.4 s | 11.9 s |
@@ -69,9 +69,10 @@ Median **9.1 s**, max **30.4 s** over 20 turns.
 ## Failed checks
 
 None.
+
 ## Findings for #12
 
-Every check passed, so these come from the per-turn traces (tool sequences, replies, latency), not from failed checks. Written by hand; `live_llm_check.py` keeps this section when it rewrites the report.
+Every check passed, so these come from the per-turn traces (tool sequences, replies, latency), not from failed checks. Written by hand for the 2026-10-24 06:35 UTC run above; `live_llm_check.py` keeps this section (and marks it possibly stale) when it rewrites the report.
 
 - **A turn that starts the plan uses up the whole 8-tool-call budget.** A3 used exactly 8 calls in both runs (`update_profile → check_eligibility → pick_next_question → plan_actions → raise_request ×2 → fill_form ×2`). Of the two `fill_form` calls, one queued PMFBY and the other queued nothing. No nominee had been given yet, so it most likely returned `NEEDS_INFO`, but the harness doesn't record tool args or non-error results, so this isn't confirmed. PMJJBY/PMSBY/APY waited for A4. With one more product or one retry, the turn would hit the cap before queueing everything. *Evidence:* A3, runs 1 and 2. *Fix:* have `plan_actions` list each step's `missing_mandatory` fields, and tell the model not to call `fill_form` until those are known. Also put the profile in `context_block` so turns don't open with `fetch_customer` (12/20 turns did).
 - **The model invents question ids to ask the officer for form fields.** It asked `NOMINEE_DETAILS`, `Q_NOMINEE`, `NOMINEE` and `ssy_girl_child`, none of which are in the catalogue. `_vet_question` dropped each one (5 `question_replaced` events in 20 turns). The guardrail held, and the request still showed up in `to_officer`, but the `question` field is being misused. *Evidence:* A3 (both runs), C2 (both runs), B1 run 2. *Fix:* the prompt should say `question` is only for ids returned by `pick_next_question`, and that form fields (nominee, girl child name) are asked for in `to_officer`. Or add a `needs_from_officer: [field]` field to AgentReply.
