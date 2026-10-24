@@ -42,7 +42,7 @@ def test_ramesh_moves_through_all_four_stages(client):
     t = tl(client, sid)
     rec = next(e for e in t["events"] if e["tool"] == "update_profile")
     assert rec["actor"] == "officer" and rec["stage"] == "ingest" and rec["title"] == "Officer recorded 2 facts"
-    assert "grows_notified_crop = true" in rec["summary"]
+    assert "Grows notified crop: yes" in rec["summary"]
 
     extra = {p: NOMINEE for p in ("PMJJBY", "PMSBY")}
     extra["APY"] = {**NOMINEE, "pension_amount": 2000}
@@ -74,7 +74,7 @@ def test_ramesh_moves_through_all_four_stages(client):
     approved = next(e for e in t["events"] if e["kind"] == "approve")
     assert approved["summary"] == "by Branch Manager"
     effect = next(e for e in t["events"] if e["kind"] == "completion_effect")
-    assert effect["stage"] == "report" and "aadhaar_seeded = true" in effect["summary"]
+    assert effect["stage"] == "report" and "Aadhaar seeded: yes" in effect["summary"]
 
 
 def test_events_are_in_order_and_tool_calls_are_folded(client):

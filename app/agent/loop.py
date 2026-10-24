@@ -95,6 +95,7 @@ def set_facts(conn: sqlite3.Connection, session_id: str, facts: dict, question_i
 
 def auto_act(conn: sqlite3.Connection, session_id: str, extra_fields: dict | None = None) -> dict:
     """Rules-only 'act' step: queue every actionable plan step. Used as the no-LLM fallback."""
+    sessions.get(conn, session_id)  # unknown session -> SessionError (400), like every other session route
     tb = ToolBox(conn, session_id, actor="agent")
     extra_fields = extra_fields or {}
     plan = tb.call("plan_actions", {})

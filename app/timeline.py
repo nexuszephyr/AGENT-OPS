@@ -64,6 +64,12 @@ def _officer(officer_id: Any) -> str:
     return o["name"] if o else str(officer_id or "unknown officer")
 
 
+def _fact(field: str, value: Any) -> str:
+    """'Grows notified crop: yes', not 'grows_notified_crop = true' (#24: no raw JSON in the UI)."""
+    shown = "yes" if value is True else "no" if value is False else "—" if value in (None, "") else value
+    return f"{field.replace('_', ' ').capitalize().replace('Ekyc', 'eKYC')}: {shown}"
+
+
 def _tool_event(call: dict, result: dict | None) -> dict:
     """One tool call (+ its result, if it has arrived) as a timeline event."""
     p = call.get("payload") or {}
@@ -87,7 +93,7 @@ def _tool_event(call: dict, result: dict | None) -> dict:
         kept = [k for k in facts if k not in {r.get("field") for r in rejected}]
         title = f"{who} recorded {len(kept)} fact{'s' if len(kept) != 1 else ''}" if kept or not rejected \
             else f"{who} tried to record facts"
-        summary = ", ".join(f"{k} = {json.dumps(facts[k])}" for k in kept) or "No new facts"
+        summary = ", ".join(_fact(k, facts[k]) for k in kept) or "No new facts"
         if rejected:
             tone = "guardrail"
             summary += "; kept the record for " + ", ".join(f"{r.get('field')} ({r.get('reason')})" for r in rejected)
@@ -112,7 +118,7 @@ def _tool_event(call: dict, result: dict | None) -> dict:
         pid = args.get("product_id", "")
         if out.get("status") == "NEEDS_INFO":
             tone, title = "attention", f"{pid} form needs details"
-            summary = "Missing: " + ", ".join(out.get("missing_mandatory", []))
+            summary = "Missing: " + ", ".join(f.replace("_", " ") for f in out.get("missing_mandatory", []))
         else:
             title, summary = f"{who} prepared the {pid} form", f"{out.get('item_id')} waits for a checker's approval"
         detail["result"] = {k: v for k, v in out.items() if k != "pdf_path"}
@@ -136,7 +142,7 @@ def _plain_event(row: dict) -> dict | None:
     ev, p, who = row["event"], row.get("payload") or {}, _who(row["actor"])
     tone, title, summary = "ok", ev.replace("_", " ").capitalize(), ""
     if ev == "session_start":
-        title, summary = "Session started", f"Customer {p.get('customer_id', '')}, officer {p.get('officer_id', '')}"
+        title, summary = "Session started", f"Customer {p.get('customer_id', '')}, by {_officer(p.get('officer_id'))}"
     elif ev == "message":
         title, summary = "Officer typed", _short(p.get("text"))
     elif ev == "llm_reply":
@@ -186,7 +192,7 @@ def _plain_event(row: dict) -> dict | None:
     elif ev == "completion_effect":
         facts = p.get("facts") or {}
         title = "Customer record updated after approval"
-        summary = ", ".join(f"{k} = {json.dumps(v)}" for k, v in facts.items())
+        summary = ", ".join(_fact(k, v) for k, v in facts.items())
     return {"id": row["id"], "ts": row["ts"], "stage": EVENT_STAGE.get(ev, "decide"), "actor": row["actor"],
             "kind": ev, "tool": None, "tone": tone, "title": title, "summary": summary, "detail": p}
 
