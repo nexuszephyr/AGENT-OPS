@@ -100,6 +100,7 @@ tests/
   test_api.py              DEMO.md acceptance tests over HTTP
   test_review_fixes.py     regression tests for the PR #2 review
   test_ui_components.py    UI palette ↔ engine statuses, contrast, HTML escaping, theme ↔ tokens
+  test_ui_console.py       officer console: plan stepper follows the real queue, new components escape text
 scripts/
   check_guardrails.py      static checks for the non-negotiable rules
   check_docs_sync.py       docs/ ↔ code contract checks

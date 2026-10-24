@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import requests
 import streamlit as st
@@ -19,14 +20,21 @@ from components import (
     COLORS,
     app_header,
     card_title,
+    customer_bar,
+    customer_bubble,
+    customer_card,
     empty_state,
     key_values,
     kpi_tiles,
-    product_card,
+    plan_steps,
+    product_grid,
+    question_prompt,
     queue_badge,
     section_header,
     setup_page,
     status_legend,
+    status_style,
+    stepper,
 )
 
 try:  # same as app/config.py: read .env so API_URL and YS_* set there reach the UI too
@@ -56,6 +64,19 @@ QUESTION_FACT_INPUTS = {
     "Q_HAS_ACCOUNT": [("has_savings_account", "bool")],
     "Q_AGE": [("age", "int")],
 }
+# Human labels for prerequisite actions, read from the same catalogue the rules engine uses.
+# Optional: if the UI runs without the repo next to it, steps and blockers fall back to the raw action id.
+try:
+    _CATALOG = json.loads((Path(__file__).resolve().parent.parent / "app" / "rules" / "products.json")
+                          .read_text(encoding="utf-8"))
+    ACTION_LABELS: dict[str, str] = {k: v["label"] for k, v in _CATALOG["actions"].items()}
+except (OSError, ValueError, KeyError):
+    ACTION_LABELS = {}
+# Why there is no question to ask, in the officer's words (reasons come from app/planner/questions.py).
+NO_QUESTION_REASONS = {
+    "no resolvable unknowns": "No more questions: every answer the rules need is in.",
+    "question limit reached": "Question limit reached: anything still unknown is marked Verify manually.",
+}
 # Identity fields come from the bank record: hidden from the officer's edit picker.
 LOCKED_FIELDS = {"customer_id", "form", "prepared_on", "aadhaar_masked", "account_no_masked", "mobile_masked"}
 
@@ -83,6 +104,25 @@ def label(field: str) -> str:
     return field.replace("_", " ").capitalize()
 
 
+def status_changes(state: dict) -> dict[str, str]:
+    """product_id -> previous status, for products whose status changed since this session was last drawn.
+
+    The highlight stays until the next change; the toast fires once.
+    """
+    sid = state["session_id"]
+    current = {r["product_id"]: r["status"] for r in state["results"]}
+    snapshot = st.session_state.get(f"snap_{sid}")
+    if snapshot is not None and snapshot != current:
+        changed = {pid: snapshot[pid] for pid in current if pid in snapshot and snapshot[pid] != current[pid]}
+        st.session_state[f"changed_{sid}"] = changed
+        names = {r["product_id"]: r["name"] for r in state["results"]}
+        for pid, old in changed.items():
+            st.toast(f"{names[pid]}: {status_style(old).label} → {status_style(current[pid]).label}",
+                     icon=":material/sync:")
+    st.session_state[f"snap_{sid}"] = current
+    return st.session_state.get(f"changed_{sid}", {})
+
+
 # --- header -----------------------------------------------------------------------
 health = api("GET", "/health") or {}
 app_header(llm_configured=bool(health.get("llm_configured")), provider=health.get("provider"),
@@ -90,54 +130,70 @@ app_header(llm_configured=bool(health.get("llm_configured")), provider=health.ge
 
 tab_console, tab_queue, tab_dash = st.tabs(["Officer console", "Approval queue", "Branch dashboard"])
 
-# --- Officer console ------------------------------------------------------------------
+# --- Officer console (issue #17) --------------------------------------------------------
 with tab_console:
-    customers = api("GET", "/customers") or []
-    labels = {f"{c['customer_id']} · {c['name']} ({c['age']}, {c['occupation']}, {c['district']})": c["customer_id"]
-              for c in customers}
-    col_pick, col_btn = st.columns([4, 1], vertical_alignment="bottom")
-    choice = col_pick.selectbox("Customer", list(labels))
-    if col_btn.button("Start session", type="primary", width="stretch", disabled=not labels):
-        set_state(api("POST", "/sessions", json={"customer_id": labels[choice], "officer_id": OFFICER}))
-        st.session_state["last_reply"] = None
-
     state = st.session_state.get("state")
     if not state:
-        empty_state("No session yet", "Pick a customer and select Start session to screen them for every scheme.")
+        section_header("Choose a customer", "Starting a session screens them for all seven schemes at once.")
+        customers = api("GET", "/customers") or []
+        if not customers:
+            empty_state("No customers found", "Seed the demo data with python -m app.data.seed --reset.")
+        for start in range(0, len(customers), 3):
+            for col, c in zip(st.columns(3), customers[start:start + 3], strict=False):
+                with col:
+                    if customer_card(c):
+                        new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER})
+                        if new:
+                            set_state(new)
+                            st.rerun()
     else:
         state = api("GET", f"/sessions/{state['session_id']}/state") or state
         set_state(state)
-        left, right = st.columns([3, 2], gap="large")
+        sid = state["session_id"]
+        bar, switch = st.columns([4, 1], vertical_alignment="center")
+        with bar:
+            customer_bar(state["profile"])
+        if switch.button("Change customer", width="stretch"):
+            st.session_state.pop("state", None)
+            st.rerun()
+        changed = status_changes(state)
+        left, right = st.columns([1, 1.15], gap="large")
+
+        with right:
+            section_header("Products", "Decided by the rules engine. Open a card to see the cited rules.")
+            with st.popover("What the statuses mean"):
+                status_legend()
+            product_grid(state["results"], changed, ACTION_LABELS)
 
         with left:
-            section_header(f"Session {state['session_id']}", f"Stage: {label(state['state'])}")
+            section_header("Conversation", f"Session {sid} · stage: {label(state['state'])}")
+            shown = 0
             for m in state["messages"][-10:]:
                 if m["role"] == "user":
-                    if not m["content"].startswith("The officer rejected"):
-                        st.chat_message("user").write(m["content"])
+                    if m["content"].startswith("The officer rejected"):
+                        continue  # internal revision prompt, not something the officer typed
+                    with st.chat_message("user", avatar=":material/badge:"):
+                        st.caption("Officer")
+                        st.write(m["content"])
+                    shown += 1
                     continue
                 try:
                     rep = json.loads(m["content"])
                 except json.JSONDecodeError:
                     rep = {"to_officer": m["content"]}
-                with st.chat_message("assistant"):
+                with st.chat_message("assistant", avatar=":material/support_agent:"):
+                    st.caption("Yojana Saathi" + (" (rules only)" if rep.get("mode") == "rules_only" else ""))
                     st.write(rep.get("to_officer", ""))
                     if rep.get("to_customer"):
-                        st.info(f"To customer ({rep['to_customer']['lang']}): {rep['to_customer']['text']}")
-                    if rep.get("question"):
-                        st.markdown(f"**Ask:** {rep['question']['text']}")
-
-            text = st.chat_input("Type what the customer said, or an instruction")
-            if text:
-                out = api("POST", f"/sessions/{state['session_id']}/message", json={"text": text})
-                if out:
-                    set_state(out["state"])
-                    st.rerun()
-
-            # Officer fact entry: works with or without the LLM
+                        customer_bubble(rep["to_customer"].get("lang"), rep["to_customer"].get("text", ""))
+                shown += 1
+            # The current question, pinned above the input. Works with or without the LLM.
             nq = state["next_question"]["question"]
+            if not shown and nq:
+                st.caption("Ask the question below and record the answer, or type what the customer said.")
             if nq:
-                with st.expander(f"Answer: {nq['text_en']}", expanded=not health.get("llm_configured")):
+                with st.container(border=True, key="ys-question"):
+                    question_prompt(nq["text_en"], nq.get("text_kn"))
                     if nq.get("officer_note"):
                         st.caption(nq["officer_note"])
                     # Nothing is preselected: a field the officer doesn't set stays unknown (rule 4).
@@ -145,33 +201,53 @@ with tab_console:
                     for field, kind in QUESTION_FACT_INPUTS.get(nq["question_id"], []):
                         if kind == "bool":
                             ans = st.radio(label(field), ["Yes", "No"], index=None, horizontal=True,
-                                           key=f"f_{state['session_id']}_{field}")
+                                           key=f"f_{sid}_{field}")
                             if ans is not None:
                                 facts[field] = ans == "Yes"
                         else:
                             num = st.number_input(label(field), min_value=0, step=1, value=None,
-                                                  key=f"f_{state['session_id']}_{field}")
+                                                  key=f"f_{sid}_{field}")
                             if num is not None:
                                 facts[field] = int(num)
                     b1, b2 = st.columns(2)
                     if b1.button("Record answer", type="primary", disabled=not facts, width="stretch"):
-                        out = api("POST", f"/sessions/{state['session_id']}/facts",
+                        out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": facts, "question_id": nq["question_id"]})
                         if out:
-                            rej = out["result"].get("rejected_fields")
-                            if rej:
-                                st.warning("Not recorded: " + "; ".join(f"{r['field']} ({r['reason']})" for r in rej))
                             set_state(out["state"])
-                            st.rerun()
+                            rej = out["result"].get("rejected_fields")
+                            if rej:  # stay on this run so the officer sees why
+                                st.warning("Not recorded: " + "; ".join(f"{r['field']} ({r['reason']})" for r in rej))
+                            else:
+                                st.rerun()
                     # Resolves the question with no answer: its products go to VERIFY_MANUALLY.
                     if b2.button("Customer doesn't know", width="stretch"):
-                        out = api("POST", f"/sessions/{state['session_id']}/facts",
+                        out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": {}, "question_id": nq["question_id"]})
                         if out:
                             set_state(out["state"])
                             st.rerun()
             elif state["next_question"].get("reason"):
-                st.caption(f"No more questions: {state['next_question']['reason']}.")
+                st.caption(NO_QUESTION_REASONS.get(state["next_question"]["reason"],
+                                                   f"No more questions: {state['next_question']['reason']}."))
+
+            text = st.chat_input("Type what the customer said, or an instruction")
+            if text:
+                out = api("POST", f"/sessions/{sid}/message", json={"text": text})
+                if out:
+                    set_state(out["state"])
+                    st.rerun()
+
+            section_header("Plan", "In the order the steps must happen. Ticks appear as you approve them.")
+            steps = plan_steps(state, ACTION_LABELS)
+            if steps:
+                stepper(steps)
+            else:
+                empty_state("Nothing to prepare yet", "Steps appear once a product is eligible.")
+            if state["plan"]["checklist"]:
+                st.markdown("**Documents the customer should bring**")
+                for c in state["plan"]["checklist"]:
+                    st.markdown(f"- {c['label']} *(for {', '.join(c['used_by'])})*")
 
             with st.expander("Prepare all steps (rules-only)", expanded=False):
                 st.caption("Nominee and other details per product, as JSON. For example: "
@@ -184,7 +260,7 @@ with tab_console:
                         st.error("Extra fields must be valid JSON, for example {}.")
                         extra = None
                     if extra is not None:
-                        out = api("POST", f"/sessions/{state['session_id']}/act", json={"extra_fields": extra})
+                        out = api("POST", f"/sessions/{sid}/act", json={"extra_fields": extra})
                         if out:
                             for o in out["outcomes"]:
                                 if o.get("error"):
@@ -194,26 +270,6 @@ with tab_console:
                                                + ", ".join(o.get("missing_mandatory", [])))
                             set_state(out["state"])
                             st.rerun()
-
-        with right:
-            section_header("Products", "Decided by the rules engine; open a card to see the cited rules.")
-            status_legend()
-            for r in state["results"]:
-                product_card(r)
-
-            section_header("Plan", "In the order the steps must happen.")
-            steps = state["plan"]["steps"]
-            if not steps:
-                empty_state("Nothing to prepare yet", "Steps appear once a product is eligible.")
-            for s in steps:
-                target = s.get("action_id") if s["type"] == "SERVICE_REQUEST" else s["product_id"]
-                after = f" (after {', '.join(s['after'])})" if s.get("after") else ""
-                unlocks = f": unlocks {', '.join(s['unlocks'])}" if s.get("unlocks") else ""
-                st.markdown(f"{s['order']}. **{target}**{unlocks}{after}")
-            if state["plan"]["checklist"]:
-                section_header("Customer checklist", "Documents to bring, once each.")
-                for c in state["plan"]["checklist"]:
-                    st.markdown(f"- {c['label']} *(for {', '.join(c['used_by'])})*")
 
 # --- Approval queue ----------------------------------------------------------------------
 with tab_queue:
