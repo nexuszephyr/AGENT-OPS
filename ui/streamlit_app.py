@@ -20,7 +20,9 @@ import streamlit as st
 # sys.path.insert). Importing this file as `ui.streamlit_app` would raise ModuleNotFoundError.
 from components import (
     activity_feed,
+    api_error_text,
     app_header,
+    approval_chain_html,
     call_row,
     card_title,
     count_chart,
@@ -28,7 +30,9 @@ from components import (
     customer_bubble,
     customer_card,
     empty_state,
+    event_datetime,
     event_time,
+    field_label,
     filter_call_list,
     filter_results,
     format_inr,
@@ -41,11 +45,13 @@ from components import (
     pdf_first_page_png,
     pipeline,
     plan_steps,
+    prep_fields,
     product_grid,
     product_status_chart,
     question_prompt,
     queue_badge,
     queue_group_header,
+    readable,
     rejection_note,
     result_table,
     revision_diff,
@@ -103,29 +109,49 @@ LOCKED_FIELDS = {"customer_id", "form", "prepared_on", "aadhaar_masked", "accoun
 setup_page()
 
 
-def api(method: str, path: str, quiet: bool = False, **kw):
-    """Call the API. Errors are shown on the page and return None; `quiet=True` returns None silently
-    (for an expected miss, e.g. GET /scan/latest before any scan)."""
+def api(method: str, path: str, quiet: bool = False, spinner: str | None = None, **kw):
+    """Call the API. Errors are shown on the page as a sentence (never the raw response) and return None;
+    `quiet=True` returns None silently (for an expected miss, e.g. GET /scan/latest before any scan).
+    `spinner` shows a loading message while a slow call runs (#24)."""
     try:
-        r = requests.request(method, f"{API}{path}", timeout=120, **kw)
+        if spinner:
+            with st.spinner(spinner):
+                r = requests.request(method, f"{API}{path}", timeout=120, **kw)
+        else:
+            r = requests.request(method, f"{API}{path}", timeout=120, **kw)
     except requests.ConnectionError:
-        st.error(f"Can't reach the API at {API}. Start it with `uvicorn app.api.main:app`, then reload this page.")
-        st.stop()
+        api_down()
+    except requests.Timeout:
+        st.error("The API took too long to answer. Try again; if it keeps happening, restart the API.",
+                 icon=":material/hourglass_disabled:")
+        return None
     if method != "GET":  # any write (even a refused one) adds audit rows / sessions: drop the cached facets
         audit_facets.clear()
-    if r.status_code == 403:  # maker-checker refusal: show the reason, not the raw response
-        st.error(f"Refused: {r.json().get('detail', r.text)}")
-        return None
     if r.status_code >= 400:
-        if not quiet:
-            st.error(f"The API returned {r.status_code}: {r.text}")
+        if r.status_code == 403:  # maker-checker refusal: the reason, as a sentence
+            st.error(f"Refused: {api_error_text(403, r.text)}", icon=":material/gpp_bad:")
+        elif not quiet:
+            st.error(api_error_text(r.status_code, r.text), icon=":material/error:")
         return None
     return r.json() if "json" in r.headers.get("content-type", "") else r.content
+
+
+def api_down() -> None:
+    """The API isn't running: say what to do, offer a retry, and draw nothing else."""
+    empty_state("Can't reach the Yojana Saathi API",
+                f"Start it with: uvicorn app.api.main:app (expected at {API}), then retry.")
+    st.button("Retry", type="primary", icon=":material/refresh:")
+    st.stop()
 
 
 def set_state(new_state: dict | None) -> None:
     if new_state:
         st.session_state["state"] = new_state
+
+
+def flash(msg: str, icon: str = ":material/check_circle:") -> None:
+    """A confirmation toast that survives the st.rerun() after an action."""
+    st.session_state.setdefault("flash", []).append((msg, icon))
 
 
 @st.cache_data(ttl=10)
@@ -135,7 +161,7 @@ def audit_facets() -> dict:
 
 
 def label(field: str) -> str:
-    return field.replace("_", " ").capitalize()
+    return field_label(field)
 
 
 def status_changes(state: dict) -> dict[str, str]:
@@ -155,6 +181,20 @@ def status_changes(state: dict) -> dict[str, str]:
                      icon=":material/sync:")
     st.session_state[f"snap_{sid}"] = current
     return st.session_state.get(f"changed_{sid}", {})
+
+
+def last_reply_mode(state: dict) -> str | None:
+    """'agent' or 'rules_only' for the agent's latest reply (it falls back to rules-only when the LLM fails)."""
+    last = next((m for m in reversed(state.get("messages") or []) if m["role"] != "user"), None)
+    try:
+        return json.loads(last["content"]).get("mode") if last else None
+    except (ValueError, AttributeError):
+        return None
+
+
+# Example values for the details "Prepare all steps" asks for (fields from each plan step's missing_mandatory).
+PREP_HINTS = {"nominee_name": "e.g. Anjali", "nominee_relation": "e.g. daughter", "pension_amount": "1000 to 5000",
+              "girl_child_name": "e.g. Meera", "crop_name": "e.g. ragi", "season": "kharif or rabi"}
 
 
 # --- live agent turn (issue #18) ---------------------------------------------------------
@@ -263,7 +303,7 @@ def activity_live(sid: str) -> None:
 health = api("GET", "/health") or {}
 officers = {o["officer_id"]: o for o in api("GET", "/officers") or []}
 header = st.container()
-_, col_officer = st.columns([3, 1])
+_, col_officer = st.columns([2.2, 1])
 ids = list(officers) or [DEFAULT_OFFICER]
 OFFICER = col_officer.selectbox(
     "Acting as", ids, index=ids.index(DEFAULT_OFFICER) if DEFAULT_OFFICER in ids else 0,
@@ -277,6 +317,9 @@ with header:
 
 def officer_name(officer_id: str | None) -> str:
     return officers.get(officer_id or "", {}).get("name", officer_id or "unknown")
+
+
+CHECKER_NAME = next((o["name"] for o in officers.values() if o.get("role") == "checker"), "Branch Manager")
 
 
 # A checker who prepares or revises an item becomes its maker, and with one checker nobody could decide it.
@@ -313,7 +356,8 @@ with tab_console:
             for col, c in zip(st.columns(3), customers[start:start + 3], strict=False):
                 with col:
                     if customer_card(c, blocked=MAKER_ONLY):
-                        new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER})
+                        new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER},
+                                  spinner=f"Screening {c.get('name')} for all seven schemes…")
                         if new:
                             set_state(new)
                             st.rerun()
@@ -324,7 +368,11 @@ with tab_console:
         sid = state["session_id"]
         running = turn_running(sid)
         if err := st.session_state.pop("turn_error", None):
-            st.error(err)
+            st.error(err, icon=":material/error:")
+        if health.get("llm_configured") and last_reply_mode(state) == "rules_only":
+            st.warning("The language model didn't answer, so the last reply came from the rules engine (rules-only "
+                       "mode). Statuses, the plan and the question form still work; try the chat again later.",
+                       icon=":material/cloud_off:")
         bar, switch = st.columns([4, 1], vertical_alignment="center")
         with bar:
             customer_bar(state["profile"])
@@ -409,7 +457,9 @@ with tab_console:
                             else:
                                 st.rerun()
                     # Resolves the question with no answer: its products go to VERIFY_MANUALLY.
-                    if b2.button("Customer doesn't know", key="dont_know", disabled=running, width="stretch"):
+                    if b2.button("Doesn't know", key="dont_know", disabled=running, width="stretch",
+                                 help="The customer doesn't know: the products that need this answer go to "
+                                      "Verify manually"):
                         out = api("POST", f"/sessions/{sid}/facts",
                                   json={"facts": {}, "question_id": nq["question_id"]})
                         if out:
@@ -444,36 +494,52 @@ with tab_console:
                     st.markdown(f"- {c['label']} *(for {', '.join(c['used_by'])})*")
 
             with st.expander("Prepare all steps (rules-only)", expanded=False):
-                st.caption("Nominee and other details per product, as JSON. For example: "
-                           '{"PMJJBY": {"nominee_name": "Anjali", "nominee_relation": "daughter"}}')
-                extra_txt = st.text_area("Extra fields", value="{}", height=100, key="extra_fields")
-                if st.button("Prepare all steps", key="prepare_all", disabled=running):
-                    try:
-                        extra = json.loads(extra_txt or "{}")
-                    except json.JSONDecodeError:
-                        st.error("Extra fields must be valid JSON, for example {}.")
-                        extra = None
-                    if extra is not None:
-                        out = api("POST", f"/sessions/{sid}/act", json={"extra_fields": extra})
-                        if out:
-                            for o in out["outcomes"]:
-                                if o.get("error"):
-                                    st.warning(f"Step {o.get('step')}: {o['error']}")
-                                elif o.get("status") == "NEEDS_INFO":
-                                    st.warning(f"Step {o.get('step')} ({o.get('product_id')}) needs: "
-                                               + ", ".join(o.get("missing_mandatory", [])))
-                            set_state(out["state"])
-                            st.rerun()
+                needed = prep_fields(state)
+                st.caption("Queues every step that is ready, for the Branch Manager to approve. Details that several "
+                           "forms share are asked once." if needed else "Queues every step that is ready, for the "
+                           "Branch Manager to approve. No extra details are needed.")
+                # a form: every typed value is submitted with the first click (no raw JSON to type, #24)
+                with st.form(key=f"prep_{sid}", border=False):
+                    values: dict = {}
+                    cols = st.columns(2)
+                    for n, (f, pids) in enumerate(needed.items()):
+                        help_text = "For " + ", ".join(PRODUCT_NAMES.get(p, p) for p in pids)
+                        with cols[n % 2]:
+                            if f.endswith("_dob"):
+                                values[f] = st.date_input(field_label(f), value=None, key=f"prep_{sid}_{f}",
+                                                          help=help_text, format="YYYY-MM-DD")
+                            else:
+                                values[f] = st.text_input(field_label(f), key=f"prep_{sid}_{f}", help=help_text,
+                                                          placeholder=PREP_HINTS.get(f, ""))
+                    go = st.form_submit_button("Prepare all steps", key="prepare_all", type="primary", disabled=running)
+                if go:
+                    extra: dict = {}
+                    for f, pids in needed.items():
+                        v = values.get(f)
+                        v = v.isoformat() if hasattr(v, "isoformat") else (v or "").strip()
+                        if v:
+                            for pid in pids:
+                                extra.setdefault(pid, {})[f] = int(v) if f == "pension_amount" and v.isdigit() else v
+                    out = api("POST", f"/sessions/{sid}/act", json={"extra_fields": extra},
+                              spinner="Preparing the forms and service requests…")
+                    if out:
+                        missing = [f"{o.get('product_id')}: " + ", ".join(field_label(m) for m in
+                                                                          o.get("missing_mandatory", []))
+                                   for o in out["outcomes"] if o.get("status") == "NEEDS_INFO"]
+                        errors = [f"Step {o.get('step')}: {o['error']}" for o in out["outcomes"] if o.get("error")]
+                        set_state(out["state"])
+                        queued = sum(o.get("status") == "PENDING_APPROVAL" for o in out["outcomes"])
+                        flash(f"{queued} step{'s' if queued != 1 else ''} waiting for the Branch Manager's approval."
+                              + (" Still needs details: " + "; ".join(missing) + "." if missing else ""),
+                              ":material/playlist_add_check:")
+                        for e in errors:
+                            flash(e, ":material/error:")
+                        st.rerun()
 
 # --- Approval queue (issue #19) -------------------------------------------------------------
 OPEN_ITEM = ("NEEDS_OFFICER", "REJECTED", "REVISED", "PENDING_APPROVAL")
 # Within a customer: escalated, then revised (has a diff to check), then rejected, then the rest.
 _ITEM_ORDER = {"NEEDS_OFFICER": 0, "REJECTED": 2, "REVISED": 1, "PENDING_APPROVAL": 3}
-
-
-def flash(msg: str, icon: str = ":material/check_circle:") -> None:
-    """A confirmation toast that survives the st.rerun() after an action."""
-    st.session_state.setdefault("flash", []).append((msg, icon))
 
 
 @st.cache_data(show_spinner=False, max_entries=200)
@@ -508,7 +574,9 @@ def queue_item(i: dict) -> None:
                 try:
                     png, pages = pdf_preview(bytes(pdf))
                     st.image(png, width=170)  # the real PDF page, as a thumbnail
-                    with st.popover("View page", icon=":material/zoom_in:", width=170):
+                    # "Zoom", not "View page": a short label fits the preview column on a tablet (#24)
+                    with st.popover("Zoom", icon=":material/zoom_in:", width=170,
+                                    help="Page 1 of the form at a readable size"):
                         st.image(png, width=520, caption=f"{iid}: page 1 of {pages}")
                 except Exception:  # noqa: BLE001 - a preview problem must never hide the actions
                     st.caption("Preview unavailable: download the PDF instead.")
@@ -517,8 +585,11 @@ def queue_item(i: dict) -> None:
             else:
                 empty_state("No PDF", "This item has no form document.")
         with right:
-            card_title(title, f"{iid} · revision {i['revision_count']} · prepared by "
-                              f"{officer_name(i.get('prepared_by'))}", queue_badge(i["status"]))
+            # the approval chain (who prepared it, who it waits on) sits where the status badge was: same facts, and
+            # the card stays one line shorter, so Approve is still above the fold at 1366x768 (#19, #24)
+            card_title(title, f"{iid} · revision {i['revision_count']}",
+                       (queue_badge(i["status"]) if i["status"] == "NEEDS_OFFICER" else "")
+                       + approval_chain_html(i, officer_name, CHECKER_NAME))
             rej = (hist or {}).get("rejection")
             if rej:
                 rejection_note(rej.get("reason") or "", officer_name(rej.get("officer_id")))
@@ -540,9 +611,10 @@ def queue_actions(i: dict, title: str) -> None:
         a1, a2, _ = st.columns([1.1, 1.1, 1.6])
         if a1.button("Approve", key=f"ok_{iid}", type="primary", icon=":material/check:", width="stretch",
                      disabled=bool(blocked), help=blocked):
-            out = api("POST", f"/queue/{iid}/approve", json={"officer_id": OFFICER})
+            out = api("POST", f"/queue/{iid}/approve", json={"officer_id": OFFICER}, spinner=f"Approving {title}…")
             if out:  # on a refusal, stay so the error stays visible
-                applied = ", ".join(f"{k} = {v}" for k, v in (out.get("applied") or {}).items() if k != "enrollments")
+                facts = {k: v for k, v in (out.get("applied") or {}).items() if k != "enrollments"}
+                applied = readable(facts) if facts else ""
                 flash(f"Approved {title} ({iid}): submitted." + (f" Customer record updated: {applied}." if applied
                                                                   else ""))
                 st.rerun()
@@ -556,7 +628,8 @@ def queue_actions(i: dict, title: str) -> None:
                 if not reason.strip():
                     st.warning("Type a reason first, so the agent knows what to fix.")
                 else:
-                    out = api("POST", f"/queue/{iid}/reject", json={"officer_id": OFFICER, "reason": reason})
+                    out = api("POST", f"/queue/{iid}/reject", json={"officer_id": OFFICER, "reason": reason},
+                              spinner="Sending it back…")
                     if out:
                         now = (out.get("item") or {}).get("status")
                         flash(f"Rejected {title} ({iid}). " + (
@@ -624,9 +697,11 @@ with tab_queue:
     done = [i for i in items if i["status"] == "SUBMITTED"]
     if done:
         section_header("Approved and submitted", "Submission is mocked in this prototype.")
-        st.dataframe([{"Item": i["item_id"], "Customer": i["customer_id"], "What": item_title(i),
-                       "Prepared by": officer_name(i.get("prepared_by")),
-                       "Approved by": officer_name(i["decided_by"]), "Approved at": i["decided_at"]}
+        st.dataframe([{"Item": i["item_id"],
+                       "Customer": f"{names.get(i['customer_id'], {}).get('name', i['customer_id'])} "
+                                   f"({i['customer_id']})",
+                       "What": item_title(i), "Prepared by": officer_name(i.get("prepared_by")),
+                       "Approved by": officer_name(i["decided_by"]), "Approved at": event_datetime(i["decided_at"])}
                       for i in done], width="stretch", hide_index=True)
 
 # --- Branch scan (issue #38) ---------------------------------------------------------------
@@ -634,7 +709,8 @@ SCAN_PAGE = 10  # rows shown before "Show all"
 
 
 def start_session_from_scan(c: dict) -> None:
-    new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER})
+    new = api("POST", "/sessions", json={"customer_id": c["customer_id"], "officer_id": OFFICER},
+              spinner=f"Screening {c.get('name')} for all seven schemes…")
     if new:
         set_state(new)
         st.session_state["goto_tab"] = "Officer console"
@@ -649,7 +725,7 @@ with tab_scan:
     run_col, info_col = st.columns([1, 3], vertical_alignment="center")
     if (run_col.button("Run scan", key="run_scan", type="primary", icon=":material/radar:", width="stretch",
                        help="Checks every customer in the branch against all seven schemes")
-            and api("POST", "/scan", json={"officer_id": OFFICER})):
+            and api("POST", "/scan", json={"officer_id": OFFICER}, spinner="Scanning every customer in the branch…")):
         flash("Scan complete: the call list is up to date.", ":material/radar:")
         st.rerun()
     result = api("GET", "/scan/latest", quiet=True)
@@ -717,7 +793,7 @@ with tab_dash:
     head, refresh = st.columns([5, 1], vertical_alignment="bottom")
     with head:
         section_header("Branch outcomes", "Latest session per customer · indicative values")
-    if refresh.button("Refresh", key="dash_refresh", width="stretch"):
+    if refresh.button("Refresh", key="dash_refresh", width="stretch", icon=":material/refresh:"):
         audit_facets.clear()
         st.rerun()
     d = api("GET", "/dashboard") or {}
@@ -742,7 +818,7 @@ with tab_dash:
             empty_state("Run a session to see outcomes",
                         "Start a session in the Officer console; the funnel and charts fill in as you go.")
         else:
-            section_header("Enrollment funnel", "Customer-product pairs from screening to approval.")
+            section_header("Enrolment funnel", "Customer-product pairs from screening to approval.")
             st.altair_chart(funnel_chart(d["funnel"]), width="stretch")
             st.caption(funnel_sentence(d["funnel"]))
 
@@ -762,7 +838,7 @@ with tab_dash:
             if active:
                 chip, clear = st.columns([5, 1], vertical_alignment="center")
                 chip.markdown("**Filtered:** " + " · ".join(active))
-                if clear.button("✕ Clear", key="dash_clear", width="stretch"):
+                if clear.button("Clear filters", key="dash_clear", width="stretch", icon=":material/close:"):
                     st.session_state["dash_v"] = v + 1
                     st.session_state.pop("dash_detail", None)
                     st.session_state.pop("dash_product", None)
@@ -800,7 +876,9 @@ with tab_dash:
             view = filter_results(d["customer_results"], picked, st.session_state.get("dash_detail"))
             if view:
                 st.dataframe(result_table(view, d["rule_labels"], d["action_labels"], d["doc_labels"]),
-                             width="stretch", hide_index=True, height=min(420, 38 * (len(view) + 1)))
+                             width="stretch", hide_index=True, height=min(420, 38 * (len(view) + 1)),
+                             column_config={"Queue": st.column_config.TextColumn(width="medium"),
+                                            "Reason / blocker": st.column_config.TextColumn(width="large")})
             else:
                 empty_state("No customer matches these filters", "Clear the filters to see everyone.")
 
@@ -815,7 +893,8 @@ with tab_dash:
     actor_names = {"agent": "Agent", "officer": "Officer", "system": "System"}
     actor_f = f_actor.selectbox("Actor", ["All", *facets.get("actors", [])], key="audit_actor",
                                 format_func=lambda a: actor_names.get(a, a))
-    events_f = f_event.multiselect("Event", facets.get("events", []), key="audit_events")
+    events_f = f_event.multiselect("Event", facets.get("events", []), key="audit_events", format_func=field_label,
+                                   placeholder="Any event")
     q_f = f_q.text_input("Search", key="audit_q", placeholder="e.g. approval_denied, Anjali, Q-…")
     params: dict = {"limit": 200}
     if session_f != "All":
@@ -833,8 +912,8 @@ with tab_dash:
     else:
         pick = st.dataframe(
             [{"Time": event_time(r["ts"]), "Session": r["session_id"] or "—",
-              "Actor": actor_names.get(r["actor"], r["actor"]), "Event": r["event"],
-              "Details": json.dumps(r["payload"], ensure_ascii=False)[:200]} for r in rows],
+              "Actor": actor_names.get(r["actor"], r["actor"]), "Event": field_label(r["event"]),
+              "Details": readable(r["payload"], limit=200)} for r in rows],
             width="stretch", height=400, hide_index=True, on_select="rerun", selection_mode="single-row",
             key="audit_table")
         # facets are cached for 10 s and another client may have written since: never show "62 of 55"
@@ -843,5 +922,8 @@ with tab_dash:
         chosen = pick.selection.rows if pick else []
         if chosen and chosen[0] < len(rows):
             r = rows[chosen[0]]
-            st.markdown(f"**{r['event']}** · {event_time(r['ts'])} · {actor_names.get(r['actor'], r['actor'])}")
-            st.json(r["payload"], expanded=2)
+            with st.container(border=True, key="audit_record"):
+                st.markdown(f"**{field_label(r['event'])}** · {event_datetime(r['ts'])} · "
+                            f"{actor_names.get(r['actor'], r['actor'])}" + (f" · session {r['session_id']}"
+                                                                             if r["session_id"] else ""))
+                key_values(r["payload"] or {"details": None})

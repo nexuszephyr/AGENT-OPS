@@ -74,7 +74,7 @@
 
 Limits (stop rules):
 - Max **5** questions per session. Remaining UNKNOWNs become `VERIFY_MANUALLY` as soon as nothing more can be asked (limit reached, or every useful question was asked and went unanswered) **and** no question is still awaiting its answer (`pending_question`).
-- A pending question is resolved only when (a) its fields get recorded, (b) the agent sets `question_unanswered`, or (c) the officer records an answer / clicks "Customer doesn't know" (`POST /facts` with the `question_id` and no facts). An unrelated message leaves it pending, and while it is pending it is the only question that can be asked (a re-ask costs no budget).
+- A pending question is resolved only when (a) its fields get recorded, (b) the agent sets `question_unanswered`, or (c) the officer records an answer / clicks "Doesn't know" (`POST /facts` with the `question_id` and no facts). An unrelated message leaves it pending, and while it is pending it is the only question that can be asked (a re-ask costs no budget).
 - Max **8** tool calls per agent turn, and max **2** revisions per rejected item; after that, escalate to the officer as `NEEDS_OFFICER`.
 - If the LLM call fails, the session falls back to "rules-only mode": statuses still shown, and the next question comes from a fixed order.
 
@@ -90,7 +90,7 @@ Limits (stop rules):
 7. The API returns the reply + the fresh `SessionState` (product statuses, plan, queue items).
 8. The UI re-renders the whole console.
 
-**Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Customer doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all steps"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
+**Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all steps"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
 
 ## Why each piece exists
 

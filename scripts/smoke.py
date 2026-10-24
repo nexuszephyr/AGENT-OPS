@@ -218,7 +218,7 @@ def main() -> int:
         at = AppTest.from_file(str(ROOT / "ui" / "streamlit_app.py"), default_timeout=60).run()
         sm.check("UI renders without exceptions", not at.exception, [e.value for e in at.exception])
         sm.check("dashboard renders the funnel and audit log after sessions",
-                 {"Enrollment funnel", "Eligibility by product", "Audit log"} <= {h.value for h in at.subheader},
+                 {"Enrolment funnel", "Eligibility by product", "Audit log"} <= {h.value for h in at.subheader},
                  [h.value for h in at.subheader])
         sm.check("UI shows four tabs", [t.label for t in at.tabs] ==
                  ["Officer console", "Branch scan", "Approval queue", "Branch dashboard"], [t.label for t in at.tabs])

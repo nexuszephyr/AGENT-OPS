@@ -105,8 +105,8 @@ def capture(ui_url: str, out_dir: Path) -> list[str]:
                 open_tab(page, tab, "1366")
                 check_tab(page, tab, "1366")
                 save(page, "console-picker-1366x768.png" if slug == "console" else f"{slug}-1366x768.png")
-                if tab == "Approval queue" and visible(page, "View page").count():
-                    visible(page, "View page").click()
+                if tab == "Approval queue" and visible(page, "Zoom").count():
+                    visible(page, "Zoom").click()
                     page.get_by_text("page 1 of").first.wait_for(timeout=10_000)
                     save(page, "queue-view-page-1366x768.png", full=False)
                     page.keyboard.press("Escape")

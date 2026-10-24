@@ -44,9 +44,12 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `status_badge(status)` / `queue_badge(status)` / `status_legend()` | Any status shown anywhere |
 | `card_title(name, meta, badge_html, detail)` | Title row of any card |
 | `product_card(result)` | One product: badge, benefit, an indicative value line (`value_line`) when `value_inr` is set and the status is ELIGIBLE, ELIGIBLE_BLOCKED or ALREADY_ENROLLED ("₹2,00,000 life cover (indicative)"; nothing when null or not eligible), "Why this status" with cited rules and source |
-| `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens. The dashboard's "₹ unlocked" / "₹ eligible, not yet enrolled" tiles use it with a caption "indicative cover / annual benefit" |
+| `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens. Quiet label on top, big tabular number below, no accent bar (#24). A tile that needs attention gets a "!" icon with the accessible name "Needs attention" and an orange top edge, so it is never colour alone. The dashboard's "₹ unlocked" / "₹ eligible, not yet enrolled" tiles use it with a caption "indicative cover / annual benefit" |
 | `format_inr(n, compact=False)` | ₹ with Indian grouping ("₹4,12,000"); `compact=True` for tiles ("₹18.4 lakh", "₹1.2 crore") |
-| `key_values(dict)` | Form payloads and profiles instead of raw JSON |
+| `key_values(dict)` | Form payloads, profiles, audit records and the activity "why" drawers instead of raw JSON |
+| `readable(value, limit)` + `field_label(field)` | Any API value as one plain line: yes/no, comma lists, "Key: value · Key: value"; field names with acronyms kept ("Customer ID", "eKYC done") (#24) |
+| `api_error_text(status, body)` | An API error as a sentence from FastAPI's `detail` (422s as "Customer ID: field required."), never the response body (#24) |
+| `event_datetime(ts)` | "24 Oct, 16:48" in local time, for tables |
 | `empty_state(title, hint)` | Any empty area: say what to do next |
 | `customer_card(customer, blocked=None)` | One customer in the picker; returns True on "Start session" (#17). `blocked` (a reason) disables the button |
 | `customer_bar(profile)` | Who is being served, plus the account / Aadhaar seeding / eKYC facts that block schemes |
@@ -56,8 +59,10 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `plan_steps(state, action_labels)` + `stepper(steps)` | Numbered plan: approved steps ticked first, then each remaining step with its queue state |
 | `pipeline(stages, notes, active_tool)` | CGI's Ingest → Decide → Act → Report from `GET /sessions/{id}/timeline`, with the tools used in each stage; mid-turn the latest tool is highlighted (#18) |
 | `queue_group_header(name, meta, counts)` + `count_badges(counts)` | One customer's group in the approval queue, with status counts; escalations sort first (#19) |
+| `approval_chain_html(item, officer_name)` | Maker-checker on every queue card, in the title row where the status badge was: "✓ Prepared by Banking Correspondent › … Waiting on Branch Manager › ○ Submit"; sent back (✕) and approved (✓) states too. Icon + text per step (#24) |
+| `prep_fields(state)` | Pure: the details "Prepare all steps" still needs, from each ready plan step's `missing_mandatory`; a detail several forms share (the nominee) is asked once (#24) |
 | `rejection_note(reason, by)` + `revision_diff(rows)` | Why an item came back and what changed since: field, value at the rejection (struck through), value now. Rows come from `GET /queue/{id}/history` |
-| `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "View page" popover; works offline and in any browser |
+| `pdf_first_page_png(pdf)` | Page 1 of the real PDF as a PNG (pypdfium2), shown as a thumbnail with a "Zoom" popover; works offline and in any browser |
 | `call_row(row, product_names)` + `opportunity_chip(o)` | One customer on the branch-scan call list: rank, "PM-KISAN at risk" if urgent, ✓/→ chips for what they could get (the tooltip shows each one's indicative ₹), the row's indicative ₹ total (`format_inr`, hidden when 0), the reason (#38) |
 | `filter_call_list(rows, products, blockers, districts, urgent_only)` | Pure filter for the call list; keeps the scan's ranking |
 | `funnel_chart(funnel)` + `funnel_rows` / `funnel_sentence` | Dashboard funnel (Altair): count, % of the previous stage, ₹ on eligible / approved; one generated sentence (#21) |
@@ -93,15 +98,15 @@ Status changes are announced three ways: the card pulses twice (skipped with red
 
 ## Approval queue (#19)
 
-Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per customer, revised items with a diff on top. Each card shows the real PDF page as a thumbnail ("View page" for a readable size). On the right: what it is, who prepared it, why it was rejected, and **what changed since the rejection**. Below that, **Approve** (primary), **Reject…** (a popover with a required reason) or **Edit and send back…** (also a popover). Every action ends with a confirmation toast. Reason and edit inputs are forms, so the first click always counts. At 1366×768 the revised item's diff and Approve are visible without scrolling (checked in Chromium: Approve ends at 701px).
+Escalated items (`NEEDS_OFFICER`) come first, highlighted. Then one group per customer, revised items with a diff on top. Each card shows the real PDF page as a thumbnail ("Zoom" for a readable size). On the right: what it is, its approval chain (prepared by whom, waiting on whom: #24), why it was rejected, and **what changed since the rejection**. Below that, **Approve** (primary), **Reject…** (a popover with a required reason) or **Edit and send back…** (also a popover). Every action ends with a confirmation toast. Reason and edit inputs are forms, so the first click always counts. At 1366×768 the revised item's diff and Approve are visible without scrolling (checked in Chromium after #24: Approve still ends at 701px, because the chain replaced the badge instead of adding a line).
 
-| The diff since the rejection, ready to approve | Escalated first | "View page" |
+| The diff since the rejection, ready to approve | Escalated first | "Zoom" |
 |---|---|---|
 | ![diff](screenshots/queue-1366x768.png) | ![escalated](screenshots/queue-escalated-1366x768.png) | ![page](screenshots/queue-view-page-1366x768.png) |
 
 ## Branch scan (#38)
 
-The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (recommend-only: it queues nothing). Tiles show ₹ unclaimed (indicative, from #36, compact: "₹1.1 crore"; "—" if no listed customer has a valued scheme), customers to call, PM-KISAN payments at risk, accounts needing Aadhaar seeding, and the top product. The call list keeps the scan's ranking (urgent first), shows the top 10, and hides the filters (product, blocker, district, urgent only) in a collapsed expander. That keeps rank 1's **Start session** on screen at 1366×768 (checked in Chromium: the button ends at 736px). **Start session** on a row starts the session and switches to the Officer console. The tabs track state (`st.tabs(key="nav", on_change="rerun")`), and the switch is applied through `goto_tab` before the tabs are drawn. For the Branch Manager the buttons are locked, as in the picker (maker-checker).
+The officer's morning to-do list, second tab. **Run scan** calls `POST /scan` (recommend-only: it queues nothing). Tiles show ₹ unclaimed (indicative, from #36, compact: "₹1.1 crore"; "—" if no listed customer has a valued scheme), customers to call, PM-KISAN payments at risk, accounts needing Aadhaar seeding, and the top product. The call list keeps the scan's ranking (urgent first), shows the top 10, and hides the filters (product, blocker, district, urgent only) in a collapsed expander. That keeps rank 1's **Start session** on screen at 1366×768 (checked in Chromium after #24: the button ends at 730px). **Start session** on a row starts the session and switches to the Officer console. The tabs track state (`st.tabs(key="nav", on_change="rerun")`), and the switch is applied through `goto_tab` before the tabs are drawn. For the Branch Manager the buttons are locked, as in the picker (maker-checker).
 
 | Call list | Filtered: urgent only | One click later: the console |
 |---|---|---|
@@ -115,8 +120,8 @@ The Report stage, fourth tab. It's **read-only**: one `GET /dashboard` and one `
 2. **KPI rows** (`kpi_tiles`):
    - Customers screened · Products eligible · Pending approval · Approved · Escalated (attention when > 0) · Avg. time to approval (`format_minutes`; "—" when there's nothing to average)
    - ₹ unlocked · ₹ eligible, not yet enrolled · Rejected (attention when > 0), with the indicative-value caption from #36
-3. **Enrollment funnel** (`funnel_chart`): screened → eligible → queued → approved, each bar with its count, the % of the previous stage (not on "eligible", which counts products rather than customers) and ₹ on eligible / approved. Under it, one sentence built from the data (`funnel_sentence`).
-4. **Eligibility by product** (`product_status_chart`): 7 stacked bars coloured from `STATUS` (`status_scale`, legend in `status_legend` order). Clicking a bar sets `st.session_state["dash_product"]`, and "Filtered: … ✕ Clear" appears.
+3. **Enrolment funnel** (`funnel_chart`): screened → eligible → queued → approved, each bar with its count, the % of the previous stage (not on "eligible", which counts products rather than customers) and ₹ on eligible / approved. Under it, one sentence built from the data (`funnel_sentence`).
+4. **Eligibility by product** (`product_status_chart`): 7 stacked bars coloured from `STATUS` (`status_scale`, legend in `status_legend` order). Clicking a bar sets `st.session_state["dash_product"]`, and "Filtered: … Clear filters" appears.
 5. **Three panels** (`count_chart` over `panel_counts`): blocked by a prerequisite, most common not-eligible rules (rule text; the id is in the tooltip), and most common missing documents. They count customers within the product filter. Clicking a bar adds a second filter (rule / blocker / doc).
 6. **Customers in this view** (`result_table` over `filter_results`): customer, product, status, reason / blocker, queue status, ₹ value ("—" when null). Read-only.
 7. **Sessions by stage** (`stage_chips`): one chip per state; ESCALATED uses the attention tone when > 0.
@@ -127,6 +132,19 @@ On an empty DB the tiles read 0 / "—" and the charts are replaced by "Run a se
 | After the smoke flows (full page) | Clicked PMJJBY: panels and table filter |
 |---|---|
 | ![full](screenshots/dashboard-1366x768.png) | ![filtered](screenshots/dashboard-filtered-1366.png) |
+
+## Polish and accessibility pass (#24)
+
+- **No raw JSON.** The audit log's Details column and its selected record, the activity "why" drawers, approve toasts and timeline summaries all use `readable` / `key_values`. `tests/test_ui_polish.py` fails if `st.json(` or `json.dumps(` comes back into the UI. **Prepare all steps** asks for the missing details as plain inputs (nominee name, relation, pension amount, girl child's date of birth…) instead of a JSON box.
+- **Errors, loading, empty states.** API errors read as a sentence (`api_error_text`). If the API is down, the page shows what to start and a **Retry** button, and nothing else. If an LLM is configured but its call fails, a banner says the last reply came from the rules engine and what still works. Slow actions (start session, scan, prepare, approve, reject) show a spinner. `POST /sessions/{id}/act` on an unknown session is a 400 like every other session route (it was a 500).
+- **Keyboard and contrast.** Every focusable element shows a 3px ink-blue focus ring, including Streamlit buttons (their own ring is a faint grey) and the hidden radio / checkbox / toggle inputs (the ring goes on their label). Attention tiles carry an icon, not just colour.
+- **Copy.** "Enrolment" everywhere in the UI (Indian English), "Customer ID" and "eKYC" kept as acronyms, officer names instead of ids ("by Banking Correspondent"), "Doesn't know" so the button fits on a tablet, **Clear filters** and **Refresh** with icons.
+- **Tablet (820px).** The pipeline is 2 × 2 instead of 3 + 1, and "Acting as" shows the full officer name.
+- **Design.** Mercury-style KPI tiles, the approval chain on queue cards, and denser call-list rows (muted reason line), so more customers fit above the fold.
+
+| Approval chain on a queue card | Mercury-style tiles + readable audit log | Prepare all steps without JSON |
+|---|---|---|
+| ![chain](screenshots/polish-queue-chain.png) | ![audit](screenshots/polish-dashboard-audit.png) | ![prepare](screenshots/polish-prepare-form.png) |
 
 ## Screenshots
 

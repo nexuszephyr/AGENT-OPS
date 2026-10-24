@@ -5,16 +5,12 @@ through the UI's own buttons, as the app does: officer-1 (maker) prepares, manag
 """
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 APP = str(Path(__file__).resolve().parent.parent / "ui" / "streamlit_app.py")
 MAKER, CHECKER = "officer-1", "manager-1"
-NOMINEE = {"nominee_name": "Anjali", "nominee_relation": "daughter"}
-EXTRA = {"PMJJBY": NOMINEE, "PMSBY": {**NOMINEE, "nominee_name": "Anjeli"},  # misspelt: rejected in step 7
-         "APY": {**NOMINEE, "pension_amount": 2000}, "PMFBY": {"crop_name": "Ragi", "season": "Kharif 2026"}}
 
 
 # --- helpers -------------------------------------------------------------------------------
@@ -77,18 +73,23 @@ def run(sm: Any, http: Callable[..., tuple[int, Any]], api: str) -> None:
     step(sm, "UI 2 Record answer (notified crop + area = Yes): PMFBY becomes Eligible", at,
          lambda: statuses(at)["PMFBY"] == "ELIGIBLE", lambda: statuses(at))
 
-    # 3 Arjun: "Customer doesn't know" resolves the question with no answer, so its product needs a manual check
+    # 3 Arjun: "Doesn't know" resolves the question with no answer, so its product needs a manual check
     ar = fresh_app()
     click(ar, "start_C004")
     question = ar.session_state["state"]["next_question"]["question"]
     click(ar, "dont_know")
-    step(sm, "UI 3 Customer doesn't know (Arjun, income-tax status): APY -> Verify manually, no question left", ar,
+    step(sm, "UI 3 Doesn't know (Arjun, income-tax status): APY -> Verify manually, no question left", ar,
          lambda: question["resolves"] == ["APY"] and statuses(ar)["APY"] == "VERIFY_MANUALLY"
          and ar.session_state["state"]["next_question"]["question"] is None,
          lambda: (statuses(ar)["APY"], ar.session_state["state"]["next_question"]))
 
     # 4 Prepare all steps (rules-only), 5 the maker can't approve, 6 the checker approves
-    at.text_area(key="extra_fields").set_value(json.dumps(EXTRA))
+    # the #24 form asks each shared detail once (no JSON box); fill whichever fields it shows
+    prep = {"nominee_name": "Anjeli", "nominee_relation": "daughter",  # misspelt: rejected in step 7
+            "pension_amount": "2000", "crop_name": "Ragi", "season": "Kharif 2026"}
+    for field, value in prep.items():
+        if any(w.key == f"prep_{sid}_{field}" for w in at.text_input):
+            at.text_input(key=f"prep_{sid}_{field}").set_value(value)
     click(at, "prepare_all")
     st = at.session_state["state"]
     items = st["queue_items"]
@@ -142,7 +143,7 @@ def dashboard(sm: Any, http: Callable[..., tuple[int, Any]], api: str, sid: str)
     d = fresh_app()
     heads = {h.value for h in d.subheader}
     step(sm, "UI 9 dashboard: KPI tiles, funnel, Eligibility by product and Audit log render", d,
-         lambda: {"Enrollment funnel", "Eligibility by product", "Audit log"} <= heads
+         lambda: {"Enrolment funnel", "Eligibility by product", "Audit log"} <= heads
          and any("Customers screened" in m.value for m in d.markdown), lambda: sorted(heads))
 
     # What a click on the PMJJBY bar stores: the chart's selection state (AppTest can't click Vega marks)
