@@ -1,15 +1,17 @@
-"""Create bank.db with the six synthetic demo customers (docs/DATA_MODEL.md §3).
+"""Create bank.db with the six demo personas plus 30 branch customers (docs/DATA_MODEL.md §3).
 
     python -m app.data.seed            # create / upsert customers
     python -m app.data.seed --reset    # wipe sessions, queue and audit too (run before every demo)
 
 Every rule field is seeded with a known value; the only nulls are the deliberate
-unknowns (Ramesh's crop fields and Arjun's income-tax status).
+unknowns (Ramesh's crop fields and Arjun's income-tax status). Branch customers
+(C101-C130, for the proactive scan) have no nulls at all.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import random
 import shutil
 import sqlite3
 
@@ -94,6 +96,91 @@ def build_profiles() -> list[dict]:
     return [{**_DEFAULTS, **p} for p in PERSONAS]
 
 
+# --- branch customers (issue #37): a realistic book for the proactive scan ----------------------
+
+# Coherent synthetic full names (first + family name from the same community), by gender.
+_NAMES = {
+    "M": ["Manjunath Gowda", "Basavaraj Patil", "Shivakumar Hiremath", "Nagaraj Naik", "Mahesh Shetty",
+          "Prakash Hegde", "Girish Kulkarni", "Siddappa Kambar", "Venkatesh Reddy", "Mohammed Irfan",
+          "Santosh Poojary", "Chandrashekar Murthy", "Raghavendra Bhat", "Joseph D'Souza", "Imran Pasha"],
+    "F": ["Lakshmi Devi", "Geetha Shetty", "Savitha Gowda", "Kavya Hegde", "Shobha Patil", "Rekha Naik",
+          "Pushpa Kulkarni", "Nethra Bhat", "Ayesha Banu", "Sunanda Reddy", "Bhagyamma", "Divya Rao",
+          "Mary Fernandes", "Shabana Begum", "Roopa Swamy"],
+}
+_DISTRICTS = ["Mandya", "Mysuru", "Hassan", "Tumakuru", "Chikkamagaluru", "Belagavi", "Dharwad", "Ballari",
+              "Kolar", "Shivamogga", "Udupi", "Raichur"]
+# 30 slots: 12 farmers (40%), then the rest of the branch
+_OCCUPATIONS = (["farmer"] * 12 + ["salaried"] * 6 + ["gig_worker"] * 4 + ["homemaker"] * 4
+                + ["self_employed"] * 4)
+_AGES = {"farmer": (25, 68), "salaried": (23, 58), "gig_worker": (19, 35), "homemaker": (22, 60),
+         "self_employed": (21, 55)}
+
+
+def _masked(rng: random.Random, prefix: str) -> str:
+    return f"{prefix}{rng.randint(0, 9999):04d}"
+
+
+def _branch_customers() -> list[dict]:
+    rng = random.Random(42)  # noqa: S311 - synthetic data, not crypto: same book on every reset
+    occupations = list(_OCCUPATIONS)
+    rng.shuffle(occupations)
+    # names get their own Random(42), so the other fields don't depend on the name pools
+    name_rng = random.Random(42)  # noqa: S311 - synthetic data, not crypto
+    names = {g: name_rng.sample(pool, len(pool)) for g, pool in _NAMES.items()}  # 30 names, 30 customers
+    out, farmers_seen = [], 0
+    for n, occ in enumerate(occupations):
+        gender = "F" if occ == "homemaker" else rng.choice("MF")
+        if not names[gender]:  # that pool is used up: the name decides the gender
+            gender = "M" if gender == "F" else "F"
+        age = rng.randint(*_AGES[occ])
+        # shortcut: two spent draws keep the sequence of the old first/last-name picks, so every other
+        # field (ages, flags, enrollments) is unchanged; drop them if the branch book is ever regenerated
+        rng.choice(range(12))
+        rng.choice(range(12))
+        c: dict = {
+            "customer_id": f"C{101 + n}", "name": names[gender].pop(),
+            "age": age, "gender": gender, "district": rng.choice(_DISTRICTS), "occupation": occ,
+            "preferred_language": "kn" if rng.random() < 0.6 else "en",
+            "aadhaar_masked": _masked(rng, "XXXX-XXXX-"), "mobile_masked": _masked(rng, "XXXXXX"),
+            "account_no_masked": _masked(rng, "XXXXXX"),
+        }
+        if occ == "farmer":
+            farmers_seen += 1
+            c.update(is_landholder=rng.random() < 0.9, grows_notified_crop=rng.random() < 0.75,
+                     in_notified_area=rng.random() < 0.75)
+            c["land_acres"] = round(rng.uniform(0.5, 6.0), 1) if c["is_landholder"] else 0.0
+            # a few unseeded / no-eKYC accounts: their PM-KISAN payments would fail
+            if farmers_seen <= 3:
+                c["aadhaar_seeded"] = False
+            if farmers_seen in (3, 4):
+                c["ekyc_done"] = False
+            if age >= 60 and rng.random() < 0.5:
+                c.update(is_govt_employee=True, monthly_pension=rng.choice([12000, 15000, 18000]))
+        elif occ == "salaried":
+            c["is_income_tax_payer"] = rng.random() < 0.7
+        elif occ == "self_employed":
+            c["is_income_tax_payer"] = rng.random() < 0.3
+        if 22 <= age <= 45 and rng.random() < 0.35:
+            c["girl_children_under_10"] = rng.choice([1, 1, 2])
+            c["existing_ssy_accounts"] = rng.choice([0, 0, 1])
+        held = [pid for pid, chance in (("PMSBY", 0.25), ("PMJJBY", 0.15)) if rng.random() < chance]
+        if held:
+            c["enrollments"] = held
+        out.append(c)
+    # 3 customers without a savings account (no account number, so no seeding / eKYC either)
+    for c in [c for c in out if c["occupation"] in ("homemaker", "gig_worker")][:3]:
+        del c["account_no_masked"]
+        c.update(has_savings_account=False, aadhaar_seeded=False, ekyc_done=False, enrollments=[])
+    return out
+
+
+BRANCH_CUSTOMERS: list[dict] = _branch_customers()
+
+
+def build_branch_profiles() -> list[dict]:
+    return [{**_DEFAULTS, **c} for c in BRANCH_CUSTOMERS]
+
+
 def seed(conn: sqlite3.Connection, reset: bool = False) -> None:
     if reset:
         conn.executescript(
@@ -101,7 +188,10 @@ def seed(conn: sqlite3.Connection, reset: bool = False) -> None:
         )
         if config.OUT_DIR.exists():
             shutil.rmtree(config.OUT_DIR)
-    for p in build_profiles():
+    # `segment` lets the UI keep the six demo personas apart from the branch book
+    rows = [{**p, "segment": "demo"} for p in build_profiles()]
+    rows += [{**p, "segment": "branch"} for p in build_branch_profiles()]
+    for p in rows:
         conn.execute(
             "INSERT INTO customers (customer_id, profile_json) VALUES (?, ?) "
             "ON CONFLICT(customer_id) DO UPDATE SET profile_json = excluded.profile_json",

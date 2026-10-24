@@ -45,9 +45,10 @@ def test_shared_connection_survives_concurrent_reads_and_writes():
 def test_results_behave_like_a_cursor():
     conn = db.connect(":memory:")
     seed.seed(conn)
-    cur = conn.execute("SELECT customer_id FROM customers ORDER BY customer_id")
+    # the six demo personas (C001–C006); the seed also has branch customers C101+ (#37)
+    cur = conn.execute("SELECT customer_id FROM customers WHERE customer_id < 'C100' ORDER BY customer_id")
     assert cur.fetchone()["customer_id"] == "C001"
     assert [r["customer_id"] for r in cur.fetchmany(2)] == ["C002", "C003"]
     assert [r["customer_id"] for r in cur] == ["C004", "C005", "C006"]
     assert cur.fetchone() is None and cur.fetchall() == []
-    assert conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 6
+    assert conn.execute("SELECT COUNT(*) FROM customers WHERE customer_id < 'C100'").fetchone()[0] == 6

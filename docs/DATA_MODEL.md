@@ -30,6 +30,7 @@ All data is **synthetic**. SQLite file: `app/data/bank.db`, created by `python -
 | `existing_ssy_accounts` | int \| null | |
 | `enrollments` | list[str] | product IDs already held |
 | `mobile_masked` | str \| null | `XXXXXX7788` |
+| `segment` | `"demo"\|"branch"` | set by `seed()`: `demo` for the six personas, `branch` for C101–C130; not read by any rule |
 
 `null` means *unknown*, and the rules engine treats it as missing. The DB stores what the bank already knows; the interview fills the rest.
 
@@ -79,7 +80,7 @@ CREATE TABLE audit_log (
   ts TEXT DEFAULT CURRENT_TIMESTAMP,
   session_id TEXT,
   actor TEXT NOT NULL,                 -- agent | officer | system
-  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | approval_denied | revise | escalate | submit_mock | completion_effect | error
+  event TEXT NOT NULL,                 -- session_start | message | tool_call | tool_result | profile_update | llm_reply | question_replaced | question_resolved | queue_create | approve | reject | approval_denied | revise | scan_run | escalate | submit_mock | completion_effect | error
   payload_json TEXT
 );
 ```
@@ -125,6 +126,22 @@ a session and when revising.
 Every field not called out above is seeded with a known value (`false`, `0`, `[]`), so the only `null`s are the deliberate unknowns: Ramesh's crop fields and Arjun's IT status. A stray `null` would make an extra product `UNKNOWN` and change the expected outcomes.
 
 Use `C001` and `C002` in the main demo; keep the others for judges' questions.
+
+### Branch customers (C101–C130)
+
+A synthetic branch book for the proactive scan (`POST /scan`): `BRANCH_CUSTOMERS` / `build_branch_profiles()`
+in `app/data/seed.py`, generated deterministically with `random.Random(42)`. Names come from a fixed list of 30
+coherent synthetic Karnataka full names (first and family name from the same community, by gender),
+districts from a small Karnataka pool, so every reset produces the same 30 customers. They are documented as a group,
+not row by row (the docs-sync check compares the persona table above with `PERSONAS` only).
+
+- **Mix:** 12 farmers (40%), 6 salaried, 4 gig workers, 4 homemakers, 4 self-employed; ages 19–68.
+- **Scan-relevant cases:** a few farmers not Aadhaar-seeded or without eKYC (urgent: PM-KISAN would fail),
+  some income-tax payers, some with girls under 10 (SSY), some already in PMSBY / PMJJBY, and 3 without a
+  savings account (PMJDY first).
+- **No `null`s at all:** every rule field has a known value, so the scan never hits `UNKNOWN` for them.
+  IDs are masked: Aadhaar `XXXX-XXXX-dddd`, account and mobile `XXXXXXdddd`. Customers without an account have
+  no account number.
 
 ## 4. Seed data shape (example)
 

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from app import officers, queue
 from app.config import MAX_QUESTIONS
+from app.data.seed import PERSONAS
 from app.db import row_to_dict
 from app.planner.documents import plan_actions
 from app.planner.questions import BY_ID as QUESTIONS
@@ -42,13 +43,22 @@ def get_customer(conn: sqlite3.Connection, customer_id: str) -> dict:
     return json.loads(row["profile_json"])
 
 
-def list_customers(conn: sqlite3.Connection) -> list[dict]:
-    out = []
-    for r in conn.execute("SELECT profile_json FROM customers ORDER BY customer_id"):
-        p = json.loads(r["profile_json"])
-        out.append({k: p.get(k) for k in ("customer_id", "name", "age", "occupation", "district",
-                                          "preferred_language")})
-    return out
+_PERSONA_IDS = {p["customer_id"] for p in PERSONAS}
+
+
+def customer_profiles(conn: sqlite3.Connection) -> list[dict]:
+    """Every bank record, in customer_id order (the proactive scan reads these)."""
+    cur = conn.execute("SELECT profile_json FROM customers ORDER BY customer_id")
+    rows = [json.loads(r["profile_json"]) for r in cur]
+    for p in rows:  # a bank.db seeded before `segment` existed still sorts into demo / branch
+        p.setdefault("segment", "demo" if p["customer_id"] in _PERSONA_IDS else "branch")
+    return rows
+
+
+def list_customers(conn: sqlite3.Connection, segment: str | None = None) -> list[dict]:
+    return [{k: p.get(k) for k in ("customer_id", "name", "age", "occupation", "district",
+                                   "preferred_language", "segment")}
+            for p in customer_profiles(conn) if segment is None or p.get("segment") == segment]
 
 
 def create(conn: sqlite3.Connection, customer_id: str, officer_id: str) -> dict:

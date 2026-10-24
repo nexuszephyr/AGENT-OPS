@@ -8,12 +8,13 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import audit, config, db, officers, queue, sessions, timeline
+from app import audit, config, db, officers, queue, scan, sessions, timeline
 from app.agent import loop
 from app.agent.tools import revise_and_render
 from app.data import seed
@@ -22,6 +23,7 @@ from app.rules import engine
 
 app = FastAPI(title="Yojana Saathi", version="0.1.0")
 _conn = None
+_latest_scan: dict | None = None  # last POST /scan result, in memory only
 
 
 def conn():
@@ -45,6 +47,10 @@ def set_connection(c) -> None:
 class SessionIn(BaseModel):
     customer_id: str
     officer_id: str = "officer-1"
+
+
+class ScanIn(BaseModel):
+    officer_id: str | None = None  # who asked, for the audit trail (optional)
 
 
 class MessageIn(BaseModel):
@@ -99,8 +105,28 @@ def list_officers():
 
 
 @app.get("/customers")
-def customers():
-    return sessions.list_customers(conn())
+def customers(segment: Literal["demo", "branch"] | None = None):
+    return sessions.list_customers(conn(), segment)
+
+
+@app.post("/scan")
+def run_scan(body: ScanIn | None = None):
+    """Branch-wide proactive scan. Recommends only: creates no queue items, changes no customer or session."""
+    global _latest_scan
+    officer_id = body.officer_id if body else None
+    if officer_id is not None and officers.get_officer(officer_id) is None:
+        raise HTTPException(status_code=400, detail=f"unknown officer {officer_id}")
+    _latest_scan = scan.scan(sessions.customer_profiles(conn()))
+    # summary only, no per-customer data
+    audit.log(conn(), None, "agent", "scan_run", {"officer_id": officer_id, **_latest_scan["summary"]})
+    return _latest_scan
+
+
+@app.get("/scan/latest")
+def latest_scan():
+    if _latest_scan is None:
+        raise HTTPException(status_code=404, detail="no scan has run yet")
+    return _latest_scan
 
 
 @app.post("/sessions")

@@ -270,7 +270,7 @@ with tab_console:
     state = st.session_state.get("state")
     if not state:
         section_header("Choose a customer", "Starting a session screens them for all seven schemes at once.")
-        customers = api("GET", "/customers") or []
+        customers = api("GET", "/customers", params={"segment": "demo"}) or []  # branch book: scan tab (#38)
         if not customers:
             empty_state("No customers found", "Seed the demo data with python -m app.data.seed --reset.")
         if MAKER_ONLY:
