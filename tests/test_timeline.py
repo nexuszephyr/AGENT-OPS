@@ -55,7 +55,7 @@ def test_ramesh_moves_through_all_four_stages(client):
     assert next(s for s in t["stages"] if s["id"] == "decide")["tools"]["plan_actions"] >= 1
     seeding = next(e for e in t["events"] if e["tool"] == "raise_request")
     assert seeding["title"] == "Agent raised AADHAAR_SEEDING_REQUEST"
-    assert "waits for your approval" in seeding["summary"]
+    assert "waits for a checker's approval" in seeding["summary"]
 
     for i in st["queue_items"]:
         client.post(f"/queue/{i['item_id']}/approve", json=CHECKER)
@@ -143,7 +143,7 @@ def test_turn_in_progress_is_running_and_follows_the_agent():
     rows.append({"id": 7, "ts": "t7", "actor": "agent", "event": "llm_reply", "payload": {"raw": "done"}})
     t = timeline.build(session, rows)
     assert not t["running"] and t["stage"] == "decide"    # back to the session's own state
-    assert t["events"][-2]["summary"] == "Q-1 waits for your approval"
+    assert t["events"][-2]["summary"] == "Q-1 waits for a checker's approval"
 
 
 def test_llm_failure_shows_the_fallback(client, conn, monkeypatch):
@@ -182,3 +182,21 @@ def test_maker_checker_refusal_is_a_guardrail_event(client):
     assert denied["tone"] == "guardrail" and denied["stage"] == "act"
     assert denied["title"] == f"Maker-checker blocked Banking Correspondent on {item}"
     assert "only a checker" in denied["summary"]
+
+
+def test_a_crashed_turn_does_not_stay_running(client, conn, monkeypatch):
+    """PR #44 review: a non-LLM exception inside the turn used to leave the timeline "running" forever."""
+    monkeypatch.setattr(config, "LLM_API_KEY", "x")
+    monkeypatch.setattr(config, "LLM_MODEL", "fake")
+
+    def bug(*a, **k):
+        raise RuntimeError("unwrapped SDK bug")
+
+    monkeypatch.setattr(llm, "run_tool_loop", bug)
+    sid = loop.start_session(conn, "C004", "officer-1")["session_id"]
+    with pytest.raises(RuntimeError):
+        loop.handle_message(conn, sid, "hello")
+    t = tl(client, sid)
+    failed = next(e for e in t["events"] if e["kind"] == "error")
+    assert failed["title"] == "Agent turn failed" and "RuntimeError: unwrapped SDK bug" in failed["summary"]
+    assert not t["running"] and t["stage"] == "decide"  # back to the session's own state

@@ -113,16 +113,16 @@ def _tool_event(call: dict, result: dict | None) -> dict:
             tone, title = "attention", f"{pid} form needs details"
             summary = "Missing: " + ", ".join(out.get("missing_mandatory", []))
         else:
-            title, summary = f"{who} prepared the {pid} form", f"{out.get('item_id')} waits for your approval"
+            title, summary = f"{who} prepared the {pid} form", f"{out.get('item_id')} waits for a checker's approval"
         detail["result"] = {k: v for k, v in out.items() if k != "pdf_path"}
     elif tool == "raise_request":
         title = f"{who} raised {args.get('action_id', '')}"
         summary = (f"{out.get('item_id')} already raised" if out.get("note") == "already raised"
-                   else f"{out.get('item_id')} waits for your approval")
+                   else f"{out.get('item_id')} waits for a checker's approval")
         detail["result"] = out
     elif tool == "revise_item":
         title = f"{who} revised {args.get('item_id', '')}"
-        summary = f"Revision {out.get('revision_count')}: back for your approval"
+        summary = f"Revision {out.get('revision_count')}: back for a checker's approval"
         detail["result"] = out
     else:
         detail["result"] = out
@@ -155,8 +155,12 @@ def _plain_event(row: dict) -> dict | None:
     elif ev == "error":
         if "tool" in p:
             return None  # also reported by that tool's result
-        tone, title = "attention", "LLM unavailable"
-        summary = "Switched to rules-only mode: statuses still come from the rules engine"
+        if "turn_failed" in p:  # a bug inside the turn (loop.handle_message); the turn is over
+            tone, title = "attention", "Agent turn failed"
+            summary = _short(p["turn_failed"]) + ". Statuses still come from the rules engine"
+        else:
+            tone, title = "attention", "LLM unavailable"
+            summary = "Switched to rules-only mode: statuses still come from the rules engine"
     elif ev == "approve":
         title, summary = f"Officer approved {p.get('item_id', '')}", f"by {_officer(p.get('officer_id'))}"
     elif ev == "approval_denied":

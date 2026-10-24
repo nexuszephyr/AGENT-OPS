@@ -189,7 +189,7 @@ Errors: `MakerCheckerError` → **403**; every other queue/session error → 400
                "detail": { "args": {...}, "result": {...} } } ]
 }
 ```
-A tool call and its result are one event (`tone: "running"` until the result lands). `guardrail` marks a refusal: a tool error, a fact kept from the bank record, the ranker overriding the model's question, or maker-checker blocking an approval (`approval_denied`).
+A tool call and its result are one event (`tone: "running"` until the result lands). `guardrail` marks a refusal: a tool error, a fact kept from the bank record, the ranker overriding the model's question, or maker-checker blocking an approval (`approval_denied`). An `error` event ends a turn: the LLM fallback ("LLM unavailable") or a bug in the turn ("Agent turn failed", payload `turn_failed`), so `running` never sticks.
 
 `DashboardStats`:
 ```json

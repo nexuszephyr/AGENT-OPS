@@ -499,7 +499,7 @@ class Step:
 # How a plan step looks: (dot colour, status text). Done steps show ✓ instead of their number.
 STEP_STATES: dict[str, tuple[str, str]] = {
     "done": (TONE["positive"].fg, "✓ Approved"),
-    "pending": (TONE["info"].fg, "… Waiting for your approval"),
+    "pending": (TONE["info"].fg, "… Waiting for a checker's approval"),
     "rejected": (TONE["attention"].fg, "✕ Rejected: being revised"),
     "needs_officer": (TONE["attention"].fg, "! Needs you: revision limit reached"),
     "todo": (COLORS["primary"], "Ready to prepare"),
