@@ -32,7 +32,7 @@ streamlit run ui/streamlit_app.py        # terminal 2, :8501
 pytest -q                                # 102 tests, no API key needed
 ```
 
-**No API key? It still works.** Without `LLM_API_KEY` the app runs in *rules-only mode*: statuses, plan and next question come from the deterministic modules; the officer records answers with the fact form and queues steps with "Prepare all". This is also the Wi-Fi-down backup for the demo.
+**No API key? It still works.** Without `LLM_API_KEY` the app runs in *rules-only mode*: statuses, plan and next question come from the deterministic modules; the officer records answers with the fact form and queues steps with "Prepare all steps". This is also the Wi-Fi-down backup for the demo.
 
 ### CI
 
@@ -61,6 +61,7 @@ Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required c
 | `app/forms/fill.py` | Masked, watermarked PDF forms |
 | `app/api/main.py` | FastAPI routes |
 | `ui/streamlit_app.py` | Officer console, approval queue, dashboard |
+| `ui/components.py` + `.streamlit/config.toml` | UI design system: theme, status palette, shared components |
 
 ## Docs
 
@@ -76,6 +77,7 @@ Every PR runs `.github/workflows/ci.yml`. **CI passed** is the single required c
 | [docs/RESPONSIBLE_AI.md](docs/RESPONSIBLE_AI.md) | Guardrails, approval gate, privacy |
 | [docs/TASKS.md](docs/TASKS.md) | Build plan and owners |
 | [docs/DEMO.md](docs/DEMO.md) | Demo script and acceptance tests |
+| [docs/UI.md](docs/UI.md) | UI design system: palette, components, screenshots |
 
 ## Disclaimer
 

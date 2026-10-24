@@ -53,4 +53,4 @@ Customers screened, approved vs pending, blocked by seeding, top rejection rules
 ## 4. Backup plan
 
 - Recorded video of the full script (T17).
-- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Customer doesn't know"), click **Prepare all** to queue the steps, and fix a rejected form with **Edit and resubmit for approval** in the queue tab.
+- If Wi-Fi fails: rules-only mode still demos ingest → decide → act → report without the LLM. Answer questions with the fact form (or "Customer doesn't know"), click **Prepare all steps** to queue the steps, and fix a rejected form with **Edit and send back for approval** in the queue tab.

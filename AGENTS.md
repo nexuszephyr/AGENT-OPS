@@ -86,6 +86,7 @@ app/
   db.py                    SQLite schema + in-place column migrations
   config.py                env settings and stop limits (questions, tool calls, revisions)
 ui/streamlit_app.py        officer console | approval queue | dashboard tabs
+ui/components.py           shared UI components + status palette (docs/UI.md); theme in .streamlit/config.toml
 tests/
   test_rules.py            rule engine + the two demo traps
   test_planner.py

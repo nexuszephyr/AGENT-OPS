@@ -88,7 +88,7 @@ Limits (stop rules):
 6. The API returns the reply + the fresh `SessionState` (product statuses, plan, queue items).
 7. The UI re-renders the status panel.
 
-**Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Customer doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
+**Rules-only path (no LLM key, or the LLM call fails):** the same tools run without the model. The officer records answers with `POST /sessions/{id}/facts` (or "Customer doesn't know": the `question_id` with no facts), queues every actionable step with `POST /sessions/{id}/act` ("Prepare all steps"), and fixes rejected or escalated items with `POST /queue/{id}/revise`. Every item still waits for an explicit approve.
 
 ## Why each piece exists
 
