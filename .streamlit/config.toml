@@ -1,0 +1,64 @@
+# Yojana Saathi UI theme (issue #16). Tokens are mirrored in ui/components.py: keep them in sync.
+# Fonts are bundled in ui/static/fonts so the UI looks the same offline (venue Wi-Fi down).
+
+[server]
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"   # no Deploy button on the projector
+
+[theme]
+base = "light"
+primaryColor = "#1F4E8C"              # passbook ink blue: buttons, focus, links
+backgroundColor = "#F7F9FB"
+secondaryBackgroundColor = "#EAEFF5"
+textColor = "#18202C"
+linkColor = "#1F4E8C"
+borderColor = "#D5DDE8"
+showWidgetBorder = true
+baseRadius = "0.5rem"
+# One family for both scripts, so Kannada text (#13, #23) matches the English around it.
+font = "Noto Sans, Noto Sans Kannada, sans-serif"
+headingFont = "Noto Sans, Noto Sans Kannada, sans-serif"
+headingFontWeights = [700, 650, 600, 600, 600, 600]
+# Okabe-Ito order: colour-blind safe series colours for every chart
+chartCategoricalColors = ["#1F4E8C", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442", "#5A6676"]
+
+[[theme.fontFaces]]
+family = "Noto Sans"
+url = "app/static/fonts/noto-sans-latin-400-normal.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Noto Sans"
+url = "app/static/fonts/noto-sans-latin-600-normal.woff2"
+weight = "600"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Noto Sans"
+url = "app/static/fonts/noto-sans-latin-700-normal.woff2"
+weight = "700"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Noto Sans Kannada"
+url = "app/static/fonts/noto-sans-kannada-kannada-400-normal.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Noto Sans Kannada"
+url = "app/static/fonts/noto-sans-kannada-kannada-600-normal.woff2"
+weight = "600"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Noto Sans Kannada"
+url = "app/static/fonts/noto-sans-kannada-kannada-700-normal.woff2"
+weight = "700"
+style = "normal"
