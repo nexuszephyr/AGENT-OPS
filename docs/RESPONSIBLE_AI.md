@@ -21,7 +21,7 @@ CGI asked for "responsible AI controls and appropriate human approval or oversig
 ## 2. Fairness notes
 
 - Rules use only the criteria the schemes themselves define (age, occupation, income-tax status, land, children, pension). `gender` is stored but **not read by any rule**; SSY depends on the *child* being a girl.
-- Language support (Kannada) reduces exclusion of non-English speakers.
+- With the LLM on, the agent replies in the customer's language (e.g. Kannada), which reduces exclusion of non-English speakers.
 - `VERIFY_MANUALLY` exists so edge cases are routed to a human instead of being silently rejected.
 
 ## 3. What we do not claim

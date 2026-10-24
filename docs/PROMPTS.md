@@ -81,5 +81,5 @@ ask the officer instead of guessing.
 ## 5. Language handling
 
 - Customer-facing text goes in the customer's `preferred_language`. Officer-facing text is always English.
-- Preferred: the LLM writes Kannada directly. Fallback: generate English, then call Sarvam translate.
-- Optional voice: Sarvam speech-to-text (`kn-IN`) → text → same loop.
+- With an LLM key, the model writes that text directly (e.g. Kannada for Ramesh). There is no separate translation step.
+- Rules-only mode (no LLM) shows the catalogue questions in English.

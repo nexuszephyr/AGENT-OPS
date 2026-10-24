@@ -87,3 +87,24 @@ def test_theme_matches_tokens_and_bundled_fonts_exist():
     for face in theme["fontFaces"]:
         rel = face["url"].removeprefix("app/static/")
         assert (ROOT / "ui" / "static" / rel).is_file(), face["url"]
+
+
+def test_one_palette_no_raw_hex_outside_the_token_tables():
+    """PR #40 review: colours outside STATUS/QUEUE_STATUS/COLORS must reference them, so the contrast tests
+    above cover every colour the UI uses."""
+    import re
+
+    src = (ROOT / "ui" / "components.py").read_text(encoding="utf-8")
+    after_tokens = src.split("\n_FALLBACK = ", 1)[1]
+    assert re.findall(r"#[0-9A-Fa-f]{6}\b", after_tokens) == []
+
+
+def test_tones_are_status_entries():
+    for name, tone in ui.TONE.items():
+        assert tone in ui.STATUS.values(), name
+
+
+def test_plan_step_colours_are_readable():
+    for key, (colour, _text) in ui.STEP_STATES.items():
+        for background in (ui.COLORS["bg"], ui.COLORS["surface"]):
+            assert contrast(colour, background) >= 4.5, f"{key} on {background}"
