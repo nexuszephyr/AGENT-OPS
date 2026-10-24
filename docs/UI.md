@@ -45,8 +45,26 @@ Queue statuses (`queue_badge`) reuse the same tints: pending = blue, rejected / 
 | `kpi_tiles([(label, value[, needs_attention])])` | KPI row; reflows on narrow screens |
 | `key_values(dict)` | Form payloads and profiles instead of raw JSON |
 | `empty_state(title, hint)` | Any empty area: say what to do next |
+| `customer_card(customer)` | One customer in the picker; returns True on "Start session" (#17) |
+| `customer_bar(profile)` | Who is being served, plus the account / Aadhaar seeding / eKYC facts that block schemes |
+| `product_grid(results, previous, action_labels)` | All products as cards; a card whose status changed pulses and says "Changed from … to …" |
+| `question_prompt(text_en, text_kn)` | The question to ask now, pinned above the chat input |
+| `customer_bubble(lang, text)` | Text the agent wrote for the customer, set apart from what it tells the officer |
+| `plan_steps(state, action_labels)` + `stepper(steps)` | Numbered plan: approved steps ticked first, then each remaining step with its queue state |
 
 Header settings (env, optional): `YS_OFFICER_ID`, `YS_OFFICER_NAME`, `YS_BRANCH`.
+
+## Officer console (#17)
+
+The Ramesh walkthrough from `docs/DEMO.md`, in rules-only mode:
+
+| Pick a customer | Session starts: statuses, question, account facts |
+|---|---|
+| ![picker](screenshots/console-picker-1366x768.png) | ![session](screenshots/console-1366x768.png) |
+| **Answer recorded: PMFBY changes, plan appears** | **Seeding + eKYC approved: ticks, PM-KISAN unblocked** |
+| ![answered](screenshots/console-answered-1366x768.png) | ![approved](screenshots/console-approved-1366x768.png) |
+
+Status changes are announced three ways: the card pulses twice (skipped with reduced motion), the card says "Changed from … to …", and a toast names the product.
 
 ## Screenshots
 
