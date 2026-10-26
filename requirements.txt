@@ -9,6 +9,6 @@ pypdfium2>=4.30          # UI: renders page 1 of each queued PDF as an inline pr
 pillow>=10.0             # used directly by that preview (and its test); don't rely on it arriving transitively
 python-dotenv>=1.0
 httpx>=0.27          # FastAPI TestClient
-pytest>=8.0
+pytest>=9.1.1
 anthropic>=0.40      # default LLM provider
 # openai>=1.40       # uncomment if LLM_PROVIDER=openai
